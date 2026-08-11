@@ -1,0 +1,225 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>DataShare — gap screens (rough)</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color:#222; background:#fafafa; margin:0; padding:24px; }
+  h1 { font-size:16px; letter-spacing:.08em; text-transform:uppercase; color:#666; margin:0 0 4px; }
+  h2 { font-size:13px; letter-spacing:.06em; text-transform:uppercase; color:#888; margin:28px 0 10px; border-bottom:1px solid #ddd; padding-bottom:5px; }
+  .note { color:#777; font-size:12px; margin:0 0 20px; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; }
+  .scr { border:1px solid #bbb; background:#fff; width:290px; padding:14px; position:relative; }
+  .scr .tag { position:absolute; top:-9px; left:9px; background:#fafafa; padding:0 6px; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#999; }
+  .brand { font-size:11px; letter-spacing:.14em; color:#999; margin-bottom:12px; }
+  .big { font-size:15px; font-weight:600; margin:0 0 6px; }
+  .sub { color:#666; font-size:12px; margin:0 0 12px; }
+  .meta { border:1px solid #e0e0e0; padding:8px; font-size:12px; color:#444; margin:0 0 12px; }
+  .meta div { display:flex; justify-content:space-between; padding:1px 0; }
+  .meta span:last-child { color:#777; }
+  .btn { border:1px solid #333; padding:8px; text-align:center; font-size:12px; font-weight:600; }
+  .btn.ghost { border-color:#bbb; color:#777; font-weight:400; }
+  .btn.dis { border-color:#ddd; color:#bbb; }
+  .field { border:1px solid #bbb; padding:7px; font-size:12px; color:#aaa; margin-bottom:4px; }
+  .lbl { font-size:11px; color:#555; margin-bottom:3px; }
+  .err { border-left:2px solid #c00; padding-left:8px; color:#a00; font-size:12px; margin:8px 0; }
+  .warn { border-left:2px solid #c80; padding-left:8px; color:#960; font-size:12px; margin:8px 0; }
+  .ok { border-left:2px solid #080; padding-left:8px; color:#060; font-size:12px; margin:8px 0; }
+  .bar { height:7px; border:1px solid #999; margin:6px 0 3px; position:relative; }
+  .bar i { position:absolute; inset:0 auto 0 0; background:#333; display:block; }
+  .parts { display:flex; gap:2px; margin:8px 0; flex-wrap:wrap; }
+  .parts b { width:11px; height:11px; border:1px solid #999; display:block; }
+  .parts b.done { background:#333; }
+  .parts b.fail { background:#fff; border-color:#c00; }
+  .parts b.now { background:#bbb; }
+  small { color:#888; font-size:11px; display:block; margin-top:6px; }
+  .ann { font-size:11px; color:#06c; margin:6px 0 0; padding-left:10px; border-left:2px solid #cde; }
+</style>
+<body>
+
+<h1>DataShare — the three screens your maquettes cannot cover</h1>
+<p class="note">Rough on purpose. These states exist because of architecture decisions made after the brief (ClamAV gate, state machine, S3 multipart). Layout is a placeholder; the <em>states and the words</em> are the deliverable. Blue notes = the decision being made.</p>
+
+<h2>1 — Recipient page (/d/:token) — the only logged-out user in the product</h2>
+<div class="row">
+
+  <div class="scr"><span class="tag">ready</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Marie sent you a file</p>
+    <p class="sub">Expires in 6 days</p>
+    <div class="meta">
+      <div><span>rapport-final.pdf</span><span>18.4 MB</span></div>
+      <div><span>PDF document</span><span>scanned ✓</span></div>
+    </div>
+    <div class="btn">Download</div>
+    <small>No account needed.</small>
+    <p class="ann">"scanned ✓" is the payoff for ClamAV. Say it, or the cost buys nothing visible.</p>
+  </div>
+
+  <div class="scr"><span class="tag">password required</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">This file is protected</p>
+    <p class="sub">Marie set a password. Ask her for it.</p>
+    <div class="meta">
+      <div><span>rapport-final.pdf</span><span>18.4 MB</span></div>
+    </div>
+    <p class="lbl">Password</p>
+    <div class="field">••••••</div>
+    <div class="btn">Unlock</div>
+    <p class="ann">Metadata visible before unlock (US02 requires it). Name+size only — never the sender's email.</p>
+  </div>
+
+  <div class="scr"><span class="tag">wrong password</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">This file is protected</p>
+    <div class="err">That password didn't work. Check with the sender.</div>
+    <p class="lbl">Password</p>
+    <div class="field">••••••</div>
+    <div class="btn">Unlock</div>
+    <small>Attempt 2 of 10</small>
+    <p class="ann">Rate-limit the token, not the IP. Show the count so lockout isn't a surprise.</p>
+  </div>
+
+  <div class="scr"><span class="tag">still scanning</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Almost ready</p>
+    <p class="sub">We're checking this file for malware. Usually a few seconds.</p>
+    <div class="meta">
+      <div><span>rapport-final.pdf</span><span>18.4 MB</span></div>
+    </div>
+    <div class="btn dis">Download</div>
+    <small>This page refreshes itself.</small>
+    <p class="ann">THE critical gap. Without this, state != ready renders identically to a broken link.</p>
+  </div>
+
+  <div class="scr"><span class="tag">expired</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">This link has expired</p>
+    <p class="sub">Files are deleted 7 days after upload. This one was sent on 2 August.</p>
+    <div class="warn">The file is permanently deleted. Ask the sender for a new link.</div>
+    <div class="btn ghost">Send your own file</div>
+    <p class="ann">Expired ≠ error. Tombstone row lets us say WHEN and WHY. Recovery action, not a dead end.</p>
+  </div>
+
+  <div class="scr"><span class="tag">unknown / rejected</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">This link doesn't work</p>
+    <p class="sub">It may be mistyped, or the sender may have deleted the file.</p>
+    <div class="btn ghost">Send your own file</div>
+    <p class="ann">Deliberately identical for unknown-token, deleted, and malware-rejected. Do not leak which.</p>
+  </div>
+
+</div>
+
+<h2>2 — Uploader waiting on the scan (the other half of the gate)</h2>
+<div class="row">
+
+  <div class="scr"><span class="tag">uploaded → scanning</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Checking your file…</p>
+    <div class="meta"><div><span>rapport-final.pdf</span><span>18.4 MB</span></div></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <small>Upload complete. Scanning for malware.</small>
+    <div class="btn dis">Copy link</div>
+    <p class="ann">Link button disabled, not hidden. Hiding it reads as "it failed".</p>
+  </div>
+
+  <div class="scr"><span class="tag">ready</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Your link is ready</p>
+    <div class="ok">Scanned, no threats found.</div>
+    <div class="field" style="color:#333">datashare.io/d/8fK2…qR</div>
+    <div class="btn">Copy link</div>
+    <small>Expires 18 August · Password: off</small>
+    <p class="ann">Expiry and password status shown at the moment of sharing, not buried in history.</p>
+  </div>
+
+  <div class="scr"><span class="tag">rejected</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">We couldn't accept this file</p>
+    <div class="err">Our scanner flagged <b>facture.pdf.exe</b> as unsafe, so it wasn't stored.</div>
+    <p class="sub">Nothing was shared. No link was created.</p>
+    <div class="btn ghost">Try another file</div>
+    <p class="ann">No email exists (Mailpit cut), so rejection MUST be shown here and persist in history.</p>
+  </div>
+
+</div>
+
+<h2>3 — Multi-part upload progress (5 to 30 minutes for 1 GB)</h2>
+<div class="row">
+
+  <div class="scr"><span class="tag">uploading</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Sending video-demo.mp4</p>
+    <div class="bar"><i style="width:38%"></i></div>
+    <small>412 MB of 1.08 GB · about 6 min left</small>
+    <div class="parts">
+      <b class="done"></b><b class="done"></b><b class="done"></b><b class="done"></b><b class="done"></b>
+      <b class="done"></b><b class="done"></b><b class="now"></b><b></b><b></b><b></b><b></b><b></b><b></b>
+    </div>
+    <div class="btn ghost">Cancel</div>
+    <small>Keep this tab open.</small>
+    <p class="ann">Time remaining, not just a %. 6 minutes of silence needs a number that moves.</p>
+  </div>
+
+  <div class="scr"><span class="tag">part failed, retrying</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Sending video-demo.mp4</p>
+    <div class="bar"><i style="width:38%"></i></div>
+    <div class="warn">Connection dropped. Retrying chunk 8 of 14 (attempt 2).</div>
+    <div class="parts">
+      <b class="done"></b><b class="done"></b><b class="done"></b><b class="done"></b><b class="done"></b>
+      <b class="done"></b><b class="done"></b><b class="fail"></b><b></b><b></b><b></b><b></b><b></b><b></b>
+    </div>
+    <div class="btn ghost">Cancel</div>
+    <small>Your progress is kept. Nothing is lost.</small>
+    <p class="ann">The whole point of multipart, made visible. Silent retry wastes the architecture.</p>
+  </div>
+
+  <div class="scr"><span class="tag">too small to chunk</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Sending notes.txt</p>
+    <div class="bar"><i style="width:70%"></i></div>
+    <small>2.1 MB · almost done</small>
+    <p class="ann">Under 5 MiB = single PUT (S3 EntityTooSmall). No chunk grid — the UI must not imply parts that don't exist.</p>
+  </div>
+
+  <div class="scr"><span class="tag">tab closed → returned</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Upload interrupted</p>
+    <p class="sub">video-demo.mp4 stopped at 38%.</p>
+    <div class="warn">We couldn't finish this upload. Nothing was shared.</div>
+    <div class="btn ghost">Start over</div>
+    <p class="ann">Honest copy for v1 (no cross-reload resume). If Concern 3 ships, this becomes "Resume".</p>
+  </div>
+
+</div>
+
+<h2>4 — Empty states, absent from the plan entirely</h2>
+<div class="row">
+
+  <div class="scr"><span class="tag">history: zero files</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Your files</p>
+    <div style="border:1px dashed #ccc; padding:22px 12px; text-align:center; color:#888; font-size:12px; margin:8px 0;">
+      Nothing here yet.<br><br>Files you send appear here for 7 days,<br>with their links and expiry dates.
+    </div>
+    <div class="btn">Send a file</div>
+    <p class="ann">Explains what the space is FOR. "No items found." would fail Principle 1.</p>
+  </div>
+
+  <div class="scr"><span class="tag">history: has files</span>
+    <div class="brand">DATASHARE</div>
+    <p class="big">Your files</p>
+    <div class="meta">
+      <div><span>rapport-final.pdf</span><span>6d left</span></div>
+      <div><span>video-demo.mp4</span><span>2d left</span></div>
+      <div><span style="color:#999">archive.zip</span><span style="color:#999">expired</span></div>
+      <div><span style="color:#a00">facture.pdf.exe</span><span style="color:#a00">rejected</span></div>
+    </div>
+    <small>Expired and rejected files stay listed for 30 days.</small>
+    <p class="ann">Four row states, not two. This is where rejection is discovered — the only channel left.</p>
+  </div>
+
+</div>
+
+</body>
+</html>
