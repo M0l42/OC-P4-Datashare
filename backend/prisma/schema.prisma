@@ -1,0 +1,39 @@
+// Schéma Prisma — DataShare
+//
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │  SOCLE UNIQUEMENT. Les modèles ne sont PAS écrits ici.                   │
+// │                                                                          │
+// │  Le modèle de données est la tâche SOC-04 (ordre 10 du backlog), et      │
+// │  elle est écrite à la main. Le MCD qui en fait foi est dans              │
+// │  docs/diagrams/OC_P4_Diagram_2.png, sa spécification dans               │
+// │  docs/diagrams/02-mcd-modele-donnees.md.                                 │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
+// Rappels à ne pas perdre au moment d'écrire les modèles :
+//
+//   - deux entités seulement : User et File. Pas d'entité Transfer parente
+//     (vérifié contre les maquettes : un lien = un fichier), pas d'entité
+//     « lien de téléchargement » (le jeton est une colonne de File).
+//   - File.ownerId est NOT NULL. US01 l'exige et US07 est annulée.
+//   - tags en String[] (TEXT[]), pas de table de jointure.
+//   - storageKey et passwordHash sont nullable : vidés à l'expiration, la ligne
+//     survit 7 jours en état expired pour que US05 puisse afficher « expiré ».
+//   - l'énumération d'état comporte SEPT valeurs dès la première migration :
+//     pending, uploaded, scanning, ready, rejected, expired, abandoned.
+//     La rajouter plus tard est douloureux.
+//   - index à créer dans la même migration :
+//       @@index([state, expiresAt])   purge à expiration + purge des fantômes
+//       @@index([state, createdAt])   reaper des uploads abandonnés (48 h)
+//       @@unique([downloadToken])     accès destinataire
+//       @@index([ownerId])            liste « Mon espace »
+//     Trois tâches planifiées balaient ces couples quotidiennement ; sans
+//     index, chacune fait un parcours complet de table.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

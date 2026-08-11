@@ -297,6 +297,15 @@ The reaper's job is aborting `pending` multipart uploads; resume's requirement i
 
 **Resolved: reaper window is 48 hours.** Long enough for the real case (phone locks overnight, user returns in the morning). Resume is offered only inside that window. `NoSuchUpload` renders an explicit refusal plus a start-over action, never an unexplained failure. The MinIO lifecycle rule stays as a backstop.
 
+**Amended 2026-08-11 during the SOC-01 setup — the 48 h window did not actually hold.** Reading the effective MinIO config revealed `stale_uploads_expiry=24h` (swept every 6 h): MinIO abandons incomplete multipart uploads on its own after *24* hours. The storage layer would therefore have purged the parts a full day before the application reaper, so any resume attempted between 24 h and 48 h would have failed with `NoSuchUpload` while both this document and the planned E2E test asserted it worked. The default is silent — nothing fails until a real user comes back the next morning.
+
+Two corrections, both in `scripts/init-bucket.sh`:
+
+- `stale_uploads_expiry` is set to **72 h**, not 48 h. A backstop must fire *after* the primary mechanism, never before; the application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
+- The "lifecycle rule as backstop" mentioned above **never existed**. The rule the script created was `--expire-delete-marker`, which concerns delete markers on a versioned bucket and was a no-op here — and since `mc ilm rule add` appends rather than replaces, every `make init-bucket` silently added another copy. It is removed; `stale_uploads_expiry` is the only real lever, and the script is now idempotent (verified: 0 rules after two consecutive runs).
+
+Consequence for the test plan: the "resume after 48 h" E2E case has to assert the refusal path *deliberately*, because before this fix it would have passed for the wrong reason.
+
 ### `show_sender` needed a field that did not exist (Issue 2)
 
 `User` had only `email`, so the feature would have published a working email address on an unauthenticated page — a larger disclosure than the one the opt-in was meant to make safe. **Resolved: add `User.display_name` (nullable, optional at signup) and render that.** Justify the extra field in the technical doc, since US03 does not ask for it.
