@@ -491,7 +491,7 @@ Synthesized from this review. Mostly *specification* of work already budgeted in
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |---|---|---|---|
-| The four undesigned states + empty states | `~/.gstack/projects/OC-P5/designs/gap-screens-20260811/gap-screens.png` | Deliberately rough; states and copy are the deliverable, layout is not | Superseded on layout by the maquettes. Build the card + Callout pattern from `design/figma/telechargement/`, take the state list and the copy intent from here. |
+| The four undesigned states + empty states | `design/gap-screens/gap-screens.png` (source: `gap-screens.html`) | Deliberately rough; states and copy are the deliverable, layout is not | Superseded on layout by the maquettes. Build the card + Callout pattern from the Figma `telechargement` screens, take the state list and the copy intent from here. |
 
 ## What I noticed about how you think
 
