@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+.next/
+coverage/
+
+# Environment — never commit real secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Tooling / editor
+.idea/
+.vscode/
+.DS_Store
+.gstack/
+
+# OpenClassrooms course material (PDFs of the brief).
+# Kept out of version control: it is OpenClassrooms' content, not ours,
+# and it is ~5 MB of binaries the application does not need.
+OpenClassrooms/
+
+# Maquettes Figma extraites — local uniquement.
+# L'évaluateur humain a déjà accès au fichier Figma ; ces exports (26 Mo de PNG
+# haute résolution + un dump JSON brut de l'API) ne servent qu'à l'assistant
+# pendant l'implémentation. Les tokens dont le code a besoin sont dans DESIGN.md.
+design/figma/
