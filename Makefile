@@ -71,6 +71,7 @@ migrate: ## Applique les migrations Prisma
 	$(COMPOSE) exec api npx prisma migrate deploy
 
 migrate-dev: ## Crée et applique une migration (make migrate-dev n=nom)
+	@test -n "$(n)" || (echo "usage: make migrate-dev n=<nom_de_migration>"; exit 1)
 	$(COMPOSE) exec api npx prisma migrate dev --name $(n)
 
 studio: ## Ouvre Prisma Studio

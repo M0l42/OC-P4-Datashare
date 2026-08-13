@@ -516,6 +516,38 @@ Synthesized from this review. Mostly *specification* of work already budgeted in
 
 - **You went and got the missing evidence instead of guessing.** Three review questions in a row bottomed out at "the maquettes would answer this", so you had the Figma extracted rather than letting me keep speculating. It resolved a schema-blocking question, killed a stretch goal, and converted the weakest section of the plan from 2/10 to 9/10 in one move.
 
+## SOC-04 — six typing decisions the MCD did not settle (2026-08-13)
+
+Full text and justification in `docs/diagrams/02-mcd-modele-donnees.md`, section
+"Décisions arrêtées au moment de SOC-04". Summary: `Int` over `BigInt` for size,
+download token stored in cleartext as an accepted trade-off, 128-bit token from a
+CSPRNG, UUID v7 primary keys for index locality, `onDelete: Restrict`, and no
+`CHECK` constraints in the database.
+
+Two are worth retelling at the defense, because the first recommendation was
+overturned by evidence:
+
+- **The hashed token was rejected on a maquette reading.** Hashing the download
+  token and revealing it once at creation is the textbook handling of a bearer
+  credential. The maquettes killed it: Mon espace offers only *Supprimer* and
+  *Accéder*, with no regeneration anywhere, so a hash would make a link
+  permanently unrecoverable the moment the success tab is closed. Cleartext is a
+  cost we name rather than a risk we missed.
+- **The 7-day ceiling is a business rule, not a data invariant.** The first
+  proposal was a `CHECK` constraint. It was wrong: an offer at 30 days would turn
+  a product decision into a migration. The correct control is that the API never
+  accepts `expires_at` from the client at all — the client sends a *duration
+  choice*, the server validates it against the allowed set and computes the date.
+  "The user asks for 90 days" stops being a case to defend and becomes
+  unrepresentable.
+
+**Correction carried forward.** The Mon espace empty-state copy suggested at line
+272 promises *« … avec leur lien et leur date d'expiration »*. The maquettes show
+no link on those rows. Either the copy changes or Mon espace gains a copy-link
+affordance — to settle before UI-01.
+
+---
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
