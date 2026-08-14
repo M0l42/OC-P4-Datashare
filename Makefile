@@ -9,7 +9,7 @@ COMPOSE := docker compose
 .DEFAULT_GOAL := help
 .PHONY: help setup up down restart logs ps build rebuild install migrate \
         migrate-dev studio init-bucket test test-cov test-e2e lint shell-api \
-        shell-front scale clean nuke
+        shell-front scale clean nuke fix-perms
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -66,6 +66,9 @@ install: ## Installe une dépendance DANS le conteneur (make install s=api p=zod
 	@echo "     package.json, relancer :"
 	@echo "     docker compose up -d --build --renew-anon-volumes $(s)"
 	@echo ""
+
+fix-perms: ## Rend à l'hôte les fichiers générés en root par nest g (make fix-perms)
+	$(COMPOSE) exec -T -u root api chown -R $(shell id -u):$(shell id -g) src
 
 migrate: ## Applique les migrations Prisma
 	$(COMPOSE) exec api npx prisma migrate deploy
