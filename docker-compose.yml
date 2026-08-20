@@ -1,0 +1,166 @@
+# DataShare — pile de développement
+#
+#   Navigateur ──8080──> nginx ──/api──> api ×N ──> postgres
+#        │                  └──/─────> front (Vite)      └──> redis
+#        │                                                └──> minio
+#        └───────9000 (octets, URLs pré-signées)──────────────> minio
+#
+# Les octets des fichiers ne traversent ni nginx ni l'API : le navigateur parle
+# directement à MinIO. Voir docs/diagrams/OC_P4_Diagram_1.png.
+#
+# Arrivent en semaine 2, pas encore déclarés ici : worker BullMQ, ClamAV
+# (SOC-05) et HAProxy (SOC-06). Chaque conteneur arrive avec la tâche qui le
+# justifie — c'est la décision D7.
+
+name: datashare
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Port publié pour pouvoir inspecter la base depuis l'IDE. Il n'est pas
+    # nécessaire au fonctionnement de la pile : les conteneurs se joignent par
+    # le réseau interne.
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Support des files BullMQ (SOC-05) ET de la limitation de débit. La
+    # limitation DOIT être adossée à Redis et non en mémoire, précisément parce
+    # que l'API tourne en plusieurs réplicas : un compteur en mémoire serait
+    # divisé par le nombre de réplicas.
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    command: ['server', '/data', '--console-address', ':9001']
+    volumes:
+      - minio_data:/data
+    # 9000 doit être publié : le NAVIGATEUR y accède directement pour envoyer et
+    # récupérer les octets. Ce n'est pas un détail de confort, c'est
+    # l'architecture. 9001 est la console d'administration.
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Conteneur éphémère : crée le bucket, restreint le CORS, pose la règle de
+  # cycle de vie, puis s'arrête. Voir scripts/init-bucket.sh pour la raison
+  # pour laquelle le CORS passe par `mc admin config` et non par l'API S3.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN}
+    volumes:
+      - ./scripts/init-bucket.sh:/init-bucket.sh:ro
+    entrypoint: ['/bin/sh', '/init-bucket.sh']
+
+  api:
+    build:
+      context: ./backend
+      target: development
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      S3_ENDPOINT: http://minio:9000
+      # Le navigateur ne peut pas résoudre `minio` : les URLs pré-signées
+      # doivent porter un hôte joignable depuis l'extérieur du réseau Docker.
+      # C'est la variable la plus facile à oublier, et son oubli casse tous les
+      # téléversements avec une erreur réseau opaque.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN}
+    volumes:
+      - ./backend:/app
+      # Volume anonyme : empêche le node_modules de l'hôte (Node 18, binaires
+      # Prisma compilés pour glibc) d'écraser celui du conteneur (Node 22,
+      # Alpine/musl). Sans cette ligne, l'API ne démarre pas.
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 et non localhost : sur Alpine, localhost résout d'abord vers
+      # ::1, or Node écoute en IPv4 sur 0.0.0.0. Avec localhost, la sonde échoue
+      # alors que l'application fonctionne parfaitement.
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/api/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  front:
+    build:
+      context: ./frontend
+      target: development
+    restart: unless-stopped
+    environment:
+      # Le front doit connaître l'origine publique de MinIO pour rien : il
+      # reçoit des URLs pré-signées complètes de l'API. Cette variable n'est là
+      # que pour d'éventuels diagnostics.
+      VITE_API_BASE: /api
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - front
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

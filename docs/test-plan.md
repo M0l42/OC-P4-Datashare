@@ -1,6 +1,6 @@
 # Test Plan
 Branch: master
-Repo: OC-P5 (DataShare) — no remote yet
+Repo: OC-P4-Datashare
 
 ## Affected Pages/Routes
 - `/` (Téléversement) — upload, progress, per-part retry, over-1 Go refusal, success + link

@@ -297,6 +297,15 @@ The reaper's job is aborting `pending` multipart uploads; resume's requirement i
 
 **Resolved: reaper window is 48 hours.** Long enough for the real case (phone locks overnight, user returns in the morning). Resume is offered only inside that window. `NoSuchUpload` renders an explicit refusal plus a start-over action, never an unexplained failure. The MinIO lifecycle rule stays as a backstop.
 
+**Amended 2026-08-11 during the SOC-01 setup — the 48 h window did not actually hold.** Reading the effective MinIO config revealed `stale_uploads_expiry=24h` (swept every 6 h): MinIO abandons incomplete multipart uploads on its own after *24* hours. The storage layer would therefore have purged the parts a full day before the application reaper, so any resume attempted between 24 h and 48 h would have failed with `NoSuchUpload` while both this document and the planned E2E test asserted it worked. The default is silent — nothing fails until a real user comes back the next morning.
+
+Two corrections, both in `scripts/init-bucket.sh`:
+
+- `stale_uploads_expiry` is set to **72 h**, not 48 h. A backstop must fire *after* the primary mechanism, never before; the application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
+- The "lifecycle rule as backstop" mentioned above **never existed**. The rule the script created was `--expire-delete-marker`, which concerns delete markers on a versioned bucket and was a no-op here — and since `mc ilm rule add` appends rather than replaces, every `make init-bucket` silently added another copy. It is removed; `stale_uploads_expiry` is the only real lever, and the script is now idempotent (verified: 0 rules after two consecutive runs).
+
+Consequence for the test plan: the "resume after 48 h" E2E case has to assert the refusal path *deliberately*, because before this fix it would have passed for the wrong reason.
+
 ### `show_sender` needed a field that did not exist (Issue 2)
 
 `User` had only `email`, so the feature would have published a working email address on an unauthenticated page — a larger disclosure than the one the opt-in was meant to make safe. **Resolved: add `User.display_name` (nullable, optional at signup) and render that.** Justify the extra field in the technical doc, since US03 does not ask for it.
@@ -491,7 +500,7 @@ Synthesized from this review. Mostly *specification* of work already budgeted in
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |---|---|---|---|
-| The four undesigned states + empty states | `~/.gstack/projects/OC-P5/designs/gap-screens-20260811/gap-screens.png` | Deliberately rough; states and copy are the deliverable, layout is not | Superseded on layout by the maquettes. Build the card + Callout pattern from `design/figma/telechargement/`, take the state list and the copy intent from here. |
+| The four undesigned states + empty states | `design/gap-screens/gap-screens.png` (source: `gap-screens.html`) | Deliberately rough; states and copy are the deliverable, layout is not | Superseded on layout by the maquettes. Build the card + Callout pattern from the Figma `telechargement` screens, take the state list and the copy intent from here. |
 
 ## What I noticed about how you think
 
@@ -506,6 +515,38 @@ Synthesized from this review. Mostly *specification* of work already budgeted in
 - **You caught me over-correcting.** When an independent reviewer argued the AI rule should be read strictly, I narrowed my advice and you pushed back: "nothing about having AI Assisting me, as long as i'm the one coding, it's fair game as well." That is the correct reading, it is what the grading grid actually rewards, and it changed the hour budget enough to reverse one of my recommendations.
 
 - **You went and got the missing evidence instead of guessing.** Three review questions in a row bottomed out at "the maquettes would answer this", so you had the Figma extracted rather than letting me keep speculating. It resolved a schema-blocking question, killed a stretch goal, and converted the weakest section of the plan from 2/10 to 9/10 in one move.
+
+## SOC-04 — six typing decisions the MCD did not settle (2026-08-13)
+
+Full text and justification in `docs/diagrams/02-mcd-modele-donnees.md`, section
+"Décisions arrêtées au moment de SOC-04". Summary: `Int` over `BigInt` for size,
+download token stored in cleartext as an accepted trade-off, 128-bit token from a
+CSPRNG, UUID v7 primary keys for index locality, `onDelete: Restrict`, and no
+`CHECK` constraints in the database.
+
+Two are worth retelling at the defense, because the first recommendation was
+overturned by evidence:
+
+- **The hashed token was rejected on a maquette reading.** Hashing the download
+  token and revealing it once at creation is the textbook handling of a bearer
+  credential. The maquettes killed it: Mon espace offers only *Supprimer* and
+  *Accéder*, with no regeneration anywhere, so a hash would make a link
+  permanently unrecoverable the moment the success tab is closed. Cleartext is a
+  cost we name rather than a risk we missed.
+- **The 7-day ceiling is a business rule, not a data invariant.** The first
+  proposal was a `CHECK` constraint. It was wrong: an offer at 30 days would turn
+  a product decision into a migration. The correct control is that the API never
+  accepts `expires_at` from the client at all — the client sends a *duration
+  choice*, the server validates it against the allowed set and computes the date.
+  "The user asks for 90 days" stops being a case to defend and becomes
+  unrepresentable.
+
+**Correction carried forward.** The Mon espace empty-state copy suggested at line
+272 promises *« … avec leur lien et leur date d'expiration »*. The maquettes show
+no link on those rows. Either the copy changes or Mon espace gains a copy-link
+affordance — to settle before UI-01.
+
+---
 
 ## GSTACK REVIEW REPORT
 

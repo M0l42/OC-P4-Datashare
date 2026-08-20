@@ -1,0 +1,116 @@
+// Schéma Prisma — DataShare
+//
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │  SOCLE UNIQUEMENT. Les modèles ne sont PAS écrits ici.                   │
+// │                                                                          │
+// │  Le modèle de données est la tâche SOC-04 (ordre 10 du backlog), et      │
+// │  elle est écrite à la main. Le MCD qui en fait foi est dans              │
+// │  docs/diagrams/OC_P4_Diagram_2.png, sa spécification dans               │
+// │  docs/diagrams/02-mcd-modele-donnees.md.                                 │
+// └──────────────────────────────────────────────────────────────────────────┘
+//
+// Les six choix de typage (Int vs BigInt, jeton en clair, entropie du jeton,
+// UUID v7, onDelete, absence de CHECK) sont tranchés et justifiés dans la
+// section « Décisions arrêtées au moment de SOC-04 » du même document.
+//
+// Rappels à ne pas perdre au moment d'écrire les modèles :
+//
+//   - deux entités seulement : User et File. Pas d'entité Transfer parente
+//     (vérifié contre les maquettes : un lien = un fichier), pas d'entité
+//     « lien de téléchargement » (le jeton est une colonne de File).
+//   - File.ownerId est NOT NULL. US01 l'exige et US07 est annulée.
+//   - tags en String[] (TEXT[]), pas de table de jointure.
+//   - storageKey et passwordHash sont nullable : vidés à l'expiration, la ligne
+//     survit 7 jours en état expired pour que US05 puisse afficher « expiré ».
+//   - l'énumération d'état comporte SEPT valeurs dès la première migration :
+//     pending, uploaded, scanning, ready, rejected, expired, abandoned.
+//     La rajouter plus tard est douloureux.
+//   - index à créer dans la même migration :
+//       @@index([state, expiresAt])   purge à expiration + purge des fantômes
+//       @@index([state, createdAt])   reaper des uploads abandonnés (48 h)
+//       @@unique([downloadToken])     accès destinataire
+//       @@index([ownerId])            liste « Mon espace »
+//     Trois tâches planifiées balaient ces couples quotidiennement ; sans
+//     index, chacune fait un parcours complet de table.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// États du fichier — diagramme 3, docs/diagrams/03-machine-etats-fichier.md
+//
+// L'invariant de sécurité du produit tient dans cette énumération : un lien de
+// téléchargement ne résout QUE dans l'état `ready`. Les sept valeurs sont
+// déclarées dès la première migration, parce qu'ajouter une valeur à un type
+// énuméré PostgreSQL ensuite impose un ALTER TYPE hors transaction.
+//
+//   pending    ─ upload multipart ouvert, aucune partie garantie
+//   uploaded   ─ CompleteMultipartUpload réussi, taille vérifiée (HeadObject)
+//   scanning   ─ remis au worker BullMQ, analyse ClamAV en cours
+//   ready      ─ SEUL état où le lien résout
+//   rejected   ─ refusé par l'analyse, objet supprimé
+//   expired    ─ ligne fantôme : objet purgé, ligne conservée 7 jours (US05)
+//   abandoned  ─ upload jamais terminé, ramassé par le reaper à 48 h
+// ─────────────────────────────────────────────────────────────────────────────
+enum FileState {
+  pending
+  uploaded
+  scanning
+  ready
+  rejected
+  expired
+  abandoned
+
+  @@map("file_state")
+}
+
+model User {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  email String @unique @db.VarChar(255)
+  passwordHash String @db.VarChar(255) @map("password_hash")
+  displayName String? @db.VarChar(100) @map("display_name")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  files File[]
+
+  @@map("users")
+}
+
+model File {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  originalName String @db.VarChar(255) @map("original_name")
+  mimeType     String @db.VarChar(127) @map("mime_type")
+  sizeBytes Int @map("size_bytes")
+  storageKey String? @db.VarChar(512) @map("storage_key")
+  downloadToken String @unique @db.VarChar(64) @map("download_token")
+  passwordHash String? @db.VarChar(255) @map("password_hash")
+
+  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
+
+  state FileState
+  uploadId String? @db.VarChar(255) @map("upload_id")
+  partSize Int @default(8388608) @map("part_size")
+  showSender Boolean @default(false) @map("show_sender")
+
+  tags String[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  ownerId String @db.Uuid @map("owner_id")
+
+  @@index([state, expiresAt], map: "files_state_expires_at_idx") // purge à expiration + purge des fantômes
+  @@index([state, createdAt], map: "files_state_created_at_idx") // reaper des uploads abandonnés (48 h)
+  @@index([ownerId], map: "files_owner_id_idx") // liste « Mon espace »
+  @@map("files")
+}
+

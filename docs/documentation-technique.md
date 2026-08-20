@@ -288,25 +288,29 @@ Le README est un livrable distinct et détaillé ; cette section en donne l'esse
 
 | Outil | Version | Remarque |
 |---|---|---|
-| Docker Engine | 24+ | |
-| Docker Compose | v2 | `docker compose`, pas `docker-compose` |
-| Node.js | 20 LTS minimum | L'AWS SDK v3 avertit sous Node 18 et exigera Node 22 après janvier 2027 |
+| Docker Engine | 24+ | Vérifié sur 29.1.3 |
+| Docker Compose | v2 | `docker compose`, pas `docker-compose`. Vérifié sur 2.40.3 |
+| Node.js | 20 LTS minimum | **Uniquement pour l'outillage hors conteneur.** Les conteneurs embarquent Node 22, donc la pile démarre même sous Node 18 en local. L'AWS SDK v3 avertit sous Node 18 et exigera Node 22 après janvier 2027 |
 | k6 | dernière | Binaire Go, installé séparément — ce n'est pas un paquet npm |
+
+Une conséquence de la ligne Node : `npm install` lancé **sur l'hôte** n'atteint pas le conteneur, parce que `node_modules` y vit dans un volume anonyme (c'est ce volume qui empêche les binaires natifs compilés pour l'hôte d'écraser ceux du conteneur). D'où la cible `make install s=api p=<paquet>`, qui installe au bon endroit et rappelle le `--renew-anon-volumes` nécessaire après modification de `package.json`.
 
 ### Commandes principales
 
 ```bash
-git clone <url-du-depot> && cd datashare
-cp .env.example .env      # renseigner les secrets locaux
-make up                   # construit et démarre toute la pile
+git clone git@github.com:M0l42/OC-P4-Datashare.git && cd OC-P4-Datashare
+make setup                # copie .env, construit, démarre, attend /api/health
 make migrate              # prisma migrate deploy
-make init-bucket          # crée le bucket et applique la politique CORS
 make test                 # unitaires + intégration
-make e2e                  # Cypress
+make test-e2e             # Cypress
 make down
 ```
 
-L'objectif est qu'un clone vierge suivi de `make up` produise une pile fonctionnelle sans étape manuelle. C'est ce qui satisfait le livrable « scripts de déploiement » : `docker-compose.yml`, les cibles du Makefile, `prisma migrate deploy`, `scripts/init-bucket.sh` et un `.env.example` versionné.
+`make setup` est le point d'entrée : il copie `.env.example` en `.env` s'il est absent, construit les images, démarre les services et **attend que `/api/health` réponde** avant de rendre la main, au lieu de supposer que la pile est prête. `make init-bucket` n'a pas à être appelée à la main — le conteneur éphémère `minio-init` l'exécute au démarrage ; la cible existe pour rejouer l'initialisation du stockage seule. `make help` liste les 22 cibles.
+
+Un clone vierge suivi de `make setup` produit donc une pile fonctionnelle sans étape manuelle. C'est ce qui satisfait le livrable « scripts de déploiement » : `docker-compose.yml`, les cibles du Makefile, `prisma migrate deploy`, `scripts/init-bucket.sh` et un `.env.example` versionné.
+
+**État vérifié au 11/08/2026** (commit `e20a09c`) : les 7 services démarrent, `/api/health` répond 200 à travers nginx sur 10 requêtes consécutives, le front est servi, et MinIO est joignable depuis l'hôte — ce dernier point n'est pas un confort de développement mais une exigence d'architecture, puisque le navigateur envoie les octets directement au stockage.
 
 ### Variables d'environnement
 
@@ -315,16 +319,35 @@ L'objectif est qu'un clone vierge suivi de `make up` produise une pile fonctionn
 | `DATABASE_URL` | Chaîne de connexion PostgreSQL |
 | `REDIS_URL` | Connexion Redis |
 | `JWT_SECRET` | Signature des jetons |
-| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | Cible de stockage |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | Cible de stockage, vue **depuis l'API** (réseau interne) |
+| `S3_PUBLIC_ENDPOINT` | Même stockage, vu **depuis le navigateur**. Voir l'encadré ci-dessous |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Identifiants de stockage, jamais exposés au client |
 | `PUBLIC_APP_ORIGIN` | Origine autorisée pour la politique CORS du bucket |
 | `CLAMAV_HOST`, `CLAMAV_MAX_BYTES` | Cible et plafond de l'antivirus |
 
 Aucune valeur d'hôte, de port ou d'identifiant n'est écrite en dur : tout passe par l'environnement, et aucun secret réel n'est versionné.
 
-### Un piège de configuration à connaître
+### Trois pièges de configuration à connaître
 
-**La configuration CORS de MinIO ne se fait pas comme sur S3, et l'écart est piégeux.** Vérifié expérimentalement :
+Les trois ont été rencontrés pour de bon pendant le montage de la pile, pas anticipés en théorie. Ils partagent un trait : **aucun ne produit d'erreur au démarrage.** Ils se manifestent plus tard, sur un cas d'usage réel.
+
+#### 1. Deux adresses pour un seul stockage
+
+`S3_ENDPOINT` vaut `http://minio:9000` : c'est ainsi que l'**API** joint le stockage, par le réseau interne Docker. Mais les URLs pré-signées sont consommées par le **navigateur**, qui ne sait pas résoudre le nom `minio`. Elles doivent donc porter une adresse joignable depuis l'extérieur, d'où `S3_PUBLIC_ENDPOINT`.
+
+C'est la variable la plus facile à oublier, et son oubli casse *tous* les téléversements avec une erreur réseau opaque côté navigateur — l'API, elle, fonctionne parfaitement. C'est aussi la raison pour laquelle le port 9000 est publié dans `docker-compose.yml`.
+
+#### 2. La durée de vie des uploads incomplets contredisait la reprise
+
+MinIO abandonne de lui-même les uploads multipart incomplets au bout de **24 heures** (`stale_uploads_expiry`, balayage toutes les 6 h). Or la reprise d'un téléversement interrompu est annoncée sur **48 heures**. Le stockage aurait donc purgé les parties une journée entière avant le nettoyage applicatif : toute reprise tentée entre 24 h et 48 h aurait échoué en `NoSuchUpload`, pendant que la documentation et le test end-to-end prévu affirmaient le contraire.
+
+`scripts/init-bucket.sh` porte ce réglage à **72 heures**, et non à 48 : un filet de sécurité doit se déclencher *après* le mécanisme principal, jamais avant. Le nettoyage applicatif garde ainsi l'autorité sur la fenêtre de reprise, et le stockage ne rattrape que les parties orphelines qu'aucune ligne en base ne référence plus.
+
+Ce constat a également invalidé une affirmation du dossier de conception : la « règle de cycle de vie servant de filet de sécurité » n'en était pas une. Une règle de cycle de vie S3 ne sait pas expirer un upload multipart incomplet ; celle qui était posée concernait les marqueurs de suppression et n'avait aucun effet. `stale_uploads_expiry` est le seul levier réel.
+
+#### 3. Le CORS de MinIO ne se configure pas comme sur S3
+
+**L'écart est piégeux.** Vérifié expérimentalement :
 
 - `PutBucketCors` renvoie `NotImplemented` — la politique CORS n'est **pas** configurable par l'API S3 ;
 - MinIO **renvoie n'importe quelle origine** par défaut, donc un bug CORS ne peut pas se reproduire en local ;
@@ -373,3 +396,20 @@ La conception de ce projet a été menée en dialogue avec un assistant, avec de
 Le défaut critique mérite d'être cité, parce qu'il illustre ce que la supervision apporte réellement. La fonction de reprise d'upload, telle que spécifiée, permettait à un utilisateur re-sélectionnant un **autre** fichier de taille identique de produire un objet assemblé à partir de deux fichiers différents : l'envoi se terminait sans erreur, passait le contrôle de taille `HeadObject` (la taille était correcte) et livrait un fichier corrompu derrière un lien valide. Aucune erreur nulle part. Corrigé par une vérification d'identité (nom, taille, date de modification) puis la vérification d'un **échantillon** de parties par recalcul de somme de contrôle — un échantillon et non la totalité, parce que hacher 800 Mo bloquerait le fil d'exécution principal du navigateur pendant plusieurs secondes.
 
 La trace complète des décisions et des revues est dans `docs/design-decisions.md`.
+
+### IA sur le socle technique — SOC-01 à SOC-03 (11/08/2026, commit `e20a09c`)
+
+Relève de la catégorie 3 ci-dessus : ce sont des artefacts d'infrastructure, pas des user stories. Confié en bloc, et consigné ici plutôt que dilué, parce que la transparence sur le périmètre est ce qui rend la catégorie 3 défendable.
+
+**Confié** : `docker-compose.yml` (7 services), `Makefile` (22 cibles), `infra/nginx/nginx.conf`, `scripts/init-bucket.sh`, `.env.example`, les deux `Dockerfile` multi-étapes, l'amorçage NestJS (`main.ts`, `ValidationPipe` global, préfixe `/api`) et l'endpoint de liveness.
+
+**Explicitement non confié** : `prisma/schema.prisma` ne déclare aucun modèle. Le modèle de données est SOC-04 et est écrit à la main — c'est le cœur du projet, pas de l'outillage. Le fichier ne contient qu'un en-tête rappelant les contraintes à respecter.
+
+**Ce que la supervision a produit de concret.** Sept pièges ont été rencontrés, dont deux méritent d'être cités parce qu'ils ont *corrigé le dossier de conception* et non seulement le code :
+
+- `stale_uploads_expiry` à 24 h contre une fenêtre de reprise annoncée à 48 h (détaillé en section 7). La conception affirmait une garantie que le stockage ne tenait pas. Le test end-to-end prévu aurait passé pour la mauvaise raison.
+- La « règle de cycle de vie servant de filet de sécurité » mentionnée dans la conception n'existait pas : la règle réellement posée était sans effet, et s'ajoutait en double à chaque exécution du script.
+
+Les cinq autres relèvent de l'exploitation et sont documentés en commentaire à l'endroit du code qui les corrige : résolution DNS des noms d'`upstream` par nginx, sonde de santé sur `localhost` contre écoute IPv4, `node_modules` en volume anonyme, `url = env(...)` refusé par Prisma 7 (version épinglée en 6), absence de `grep` dans l'image `minio/mc`.
+
+**Limite constatée, notée honnêtement** : sur ces sept points, aucun n'a été anticipé — tous ont été trouvés en exécutant la pile et en *lisant la configuration effective* plutôt qu'en supposant que les valeurs par défaut correspondaient à l'intention. C'est la leçon transférable de cette tâche : les deux défauts les plus graves étaient des valeurs par défaut silencieuses, qui n'auraient produit aucune erreur avant qu'un utilisateur réel revienne le lendemain matin.
