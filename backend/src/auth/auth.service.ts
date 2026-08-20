@@ -5,6 +5,12 @@ import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
 import {JwtService} from "@nestjs/jwt";
 
+// Comparé contre un mot de passe inconnu quand aucun utilisateur n'est trouvé,
+// pour que le coût bcrypt soit payé dans les deux branches : sinon l'écart de
+// latence (email inconnu ~instantané vs mot de passe faux ~50ms) trahit
+// l'existence d'un compte malgré un message d'erreur identique.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('no-such-user-timing-safety', 10);
+
 @Injectable()
 export class AuthService {
     constructor(private readonly prisma: PrismaService, private readonly jwt: JwtService) {}
@@ -37,6 +43,7 @@ export class AuthService {
             where: { email: dto.email },
         });
         if (!user) {
+            await bcrypt.compare(dto.password, DUMMY_PASSWORD_HASH);
             throw new UnauthorizedException('Invalid credentials');
         }
 
