@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -10,6 +12,9 @@ describe('AuthService', () => {
       create: jest.Mock;
     };
   };
+  let mockJwtService: {
+    signAsync: jest.Mock;
+  };
 
   beforeEach(async () => {
     mockPrismaService = {
@@ -18,13 +23,15 @@ describe('AuthService', () => {
             create: jest.fn(),
         },
     };
-
-
+    mockJwtService = {
+        signAsync: jest.fn().mockResolvedValue('fake-jwt-token'),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: JwtService, useValue: mockJwtService },
       ],
     }).compile();
 
@@ -67,5 +74,47 @@ describe('AuthService', () => {
     mockPrismaService.user.findUnique.mockResolvedValue({ id: 'whatever', email: dto.email });
 
     await expect(service.register(dto)).rejects.toThrow('Email already in use');
+  });
+
+  it('should login a user with valid credentials', async () => {
+    const dto = {
+      email: 'test@example.com',
+      password: '123456',
+    };
+    const mockUser = {
+      id: 'fake-id',
+      email: dto.email,
+      passwordHash: await bcrypt.hash(dto.password, 10),
+    };
+    mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+    const result = await service.login(dto);
+    expect(result.user.email).toEqual(mockUser.email);
+    expect(result).toHaveProperty('token');
+  });
+
+  it('should throw an error if user does not exist', async () => {
+    const dto = {
+      email: 'nonexistent@example.com',
+      password: '123456',
+    };
+    mockPrismaService.user.findUnique.mockResolvedValue(null);
+
+    await expect(service.login(dto)).rejects.toThrow('Invalid credentials');
+  });
+
+  it('should throw an error if password is invalid', async () => {
+    const dto = {
+      email: 'test@example.com',
+      password: 'wrongpassword',
+    };
+    const mockUser = {
+      id: 'fake-id',
+      email: dto.email,
+      passwordHash: await bcrypt.hash('123456', 10),
+    };
+    mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+    await expect(service.login(dto)).rejects.toThrow('Invalid credentials');
   });
 });
