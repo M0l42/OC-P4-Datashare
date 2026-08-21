@@ -65,7 +65,10 @@ export class FilesService {
     const passwordHash = dto.password
       ? await bcrypt.hash(dto.password, 10)
       : null;
-    const downloadToken = randomBytes(32).toString('base64url');
+    // 128 bits, 22 caractères base64url. Volontairement pas un UUID v7 :
+    // celui-ci embarque un horodatage, ce qui rendrait le jeton partiellement
+    // prévisible.
+    const downloadToken = randomBytes(16).toString('base64url');
 
     const file = await this.prisma.file.create({
       data: {
@@ -85,6 +88,11 @@ export class FilesService {
       },
     });
 
+    // Le jeton est généré et stocké dès maintenant, mais gardé côté serveur
+    // jusqu'à `complete` : le renvoyer ici créerait un quatrième cas
+    // indistinguable des trois réponses volontairement identiques de
+    // `GET /d/:token` (jeton inconnu / refusé / supprimé), ce qui va à
+    // l'encontre du principe anti-oracle.
     return { fileId: file.id, partSize: PART_SIZE_BYTES, parts };
   }
 
