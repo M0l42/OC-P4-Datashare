@@ -127,10 +127,11 @@ Deliberately excluded and documented as security roadmap: **Keycloak SSO and TOT
 |---|---|---|
 | POST | `/auth/register` | US03. Email unique, password ≥ 8 chars. |
 | POST | `/auth/login` | US04. Returns JWT. Rate-limited via Redis. |
-| POST | `/files/uploads` | US01 initiate. Validates auth, extension, declared size. Returns `uploadId`, `partSize`, pre-signed PUT URLs. |
+| GET | `/auth/me` | Convenience endpoint added during US04 to verify a JWT round-trips through the guard; not part of the original mission contract. |
+| POST | `/files/uploads` | US01 initiate. Validates auth, extension, declared size. Returns `fileId` (our row id — the real S3 multipart uploadId never leaves the server), `partSize`, pre-signed PUT URLs. |
 | GET | `/files/uploads/:id/parts` | `ListParts` plus freshly signed URLs for missing parts. Makes resume possible and covers TTL expiry. |
-| POST | `/files/uploads/:id/complete` | `CompleteMultipartUpload`, `HeadObject` size check, state → `uploaded`, enqueue validation. |
-| DELETE | `/files/uploads/:id` | `AbortMultipartUpload` for an explicit client cancel. |
+| POST | `/files/uploads/:id/complete` | `CompleteMultipartUpload`, `HeadObject` size check. **Built as: state → `ready` directly** (interim rule, see Next Steps #7 — the scanning worker doesn't exist yet); the originally planned `state → uploaded, enqueue validation` path returns once step 10 lands. **The `HeadObject` check enforces the 1 GiB ceiling only, not a comparison against the size declared at initiation** — intentionally out of scope for US01-A, owned by US01-D ("Contrôles de complétion") along with the extension/magic-byte checks. |
+| DELETE | `/files/uploads/:id` | `AbortMultipartUpload` for an explicit client cancel. **Hard-deletes the row** — unlike the reaper's automatic 48 h timeout, which leaves an `abandoned` tombstone (state diagram), an explicit cancel was never shared and has nothing worth preserving. |
 | GET | `/files` | US05 history. Owner-scoped. |
 | DELETE | `/files/:id` | US06. Owner-scoped. **AI-authored story.** |
 | GET | `/d/:token` | US02 metadata before download (name, type, size, expiry). From Postgres, never the bucket. |
