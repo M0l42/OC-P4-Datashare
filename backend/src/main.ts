@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -19,6 +20,20 @@ async function bootstrap() {
 
   // Le préfixe est repris par nginx, qui proxifie /api vers ce service.
   app.setGlobalPrefix('api');
+
+  // setGlobalPrefix ne s'applique pas à SwaggerModule.setup : le préfixe doit
+  // être répété explicitement dans le chemin de montage, sinon l'UI atterrit
+  // sur /docs au lieu de /api/docs.
+  const openApiDocument = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('DataShare API')
+      .setDescription('Contrat OpenAPI généré depuis les DTO de validation.')
+      .setVersion('0.0.1')
+      .addBearerAuth()
+      .build(),
+  );
+  SwaggerModule.setup('api/docs', app, openApiDocument);
 
   // 0.0.0.0 et non localhost : sinon le serveur n'écoute que sur la boucle
   // locale du conteneur et nginx ne peut pas l'atteindre.
