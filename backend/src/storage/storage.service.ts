@@ -5,6 +5,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   ListPartsCommand,
   S3Client,
@@ -13,6 +14,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export const PART_URL_TTL_SECONDS = 3600;
+export const DOWNLOAD_URL_TTL_SECONDS = 60;
 
 export interface UploadedPart {
   partNumber: number;
@@ -152,4 +154,31 @@ export class StorageService {
       new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
     );
   }
+
+  // response-content-disposition force le téléchargement plutôt que
+  // l'exécution dans le navigateur : sans lui, un .html ou un .svg téléversé
+  // s'exécute depuis l'origine du bucket (XSS stocké), ce que ni la liste
+  // noire d'extensions ni les octets magiques n'attrapent. Vérifié contre
+  // MinIO : le paramètre est honoré.
+  async signDownloadUrl(
+    key: string,
+    downloadFilename: string,
+  ): Promise<string> {
+    return getSignedUrl(
+      this.signingClient,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ResponseContentDisposition: `attachment; filename="${sanitizeForHeader(downloadFilename)}"`,
+        ResponseContentType: 'application/octet-stream',
+      }),
+      { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
+    );
+  }
+}
+
+// Empêche l'injection dans l'en-tête HTTP Content-Disposition : `originalName`
+// vient du client et n'est jamais validé pour ces caractères ailleurs.
+function sanitizeForHeader(value: string): string {
+  return value.replace(/["\r\n]/g, '');
 }

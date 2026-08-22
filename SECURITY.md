@@ -79,8 +79,41 @@ n'est utilisé que dans les appels serveur → MinIO (`StorageService`).
 ## Jeton de téléchargement
 
 128 bits d'entropie (`crypto.randomBytes(16).toString('base64url')`, 22
-caractères), généré à l'initiation. Volontairement pas un UUID : un UUID v7
-embarque un horodatage, ce qui rendrait le jeton partiellement prévisible.
+caractères), généré à l'initiation mais gardé côté serveur jusqu'à `complete`
+— le renvoyer plus tôt créerait un quatrième cas indistinguable des trois
+réponses volontairement identiques de `GET /d/:token` (voir plus bas).
+Volontairement pas un UUID : un UUID v7 embarque un horodatage, ce qui
+rendrait le jeton partiellement prévisible.
+
+## Téléchargement : le destinataire n'est pas authentifié
+
+La seule autorisation d'accès à un fichier est la possession du jeton dans
+l'URL (`GET /d/:token`, `POST /d/:token`). Aucune session, aucun compte requis
+côté destinataire. Trois conséquences, toutes assumées et implémentées :
+
+1. **`Content-Disposition: attachment` et `Content-Type: application/octet-stream`
+   forcés sur chaque URL signée** (`StorageService.signDownloadUrl`), quel que
+   soit le type réel du fichier. Sans ça, un `.html` ou `.svg` téléversé
+   s'exécuterait dans le navigateur depuis l'origine du bucket — un XSS
+   stocké que ni la liste noire d'extensions ni un futur contrôle d'octets
+   magiques n'attrapent. Vérifié en navigateur réel : un fichier nommé pour
+   contenir des caractères de balisage se télécharge comme texte brut, jamais
+   interprété.
+2. **Réponses volontairement identiques.** Jeton inconnu, fichier `rejected`
+   et fichier `abandoned` renvoient exactement le même `404` et le même
+   message (`DownloadService.resolveToken`). Les distinguer transformerait la
+   page en oracle permettant de sonder quels jetons ont existé. Seul `expired`
+   fait exception (`410`, message dédié) : le destinataire détenait déjà le
+   lien, donc dire que le fichier a expiré ne révèle rien de nouveau.
+3. **La date d'expiration est revérifiée à chaque requête**, indépendamment de
+   l'état stocké : une ligne encore `ready` mais dont `expiresAt` est dépassé
+   est traitée comme expirée, sans attendre le passage de la purge planifiée
+   (US10, à venir). Sinon la fenêtre entre l'expiration réelle et le prochain
+   passage du job laisserait le fichier téléchargeable.
+
+L'URL de téléchargement elle-même est signée pour **60 secondes** — consommée
+immédiatement par le navigateur, pas de fenêtre d'exploitation prolongée si
+l'URL fuit (log, historique partagé, etc.).
 
 ---
 
@@ -90,6 +123,5 @@ embarque un horodatage, ce qui rendrait le jeton partiellement prévisible.
 |---|---|---|
 | Octets magiques (contenu réel vs extension déclarée) | SOC-05 | Lecture par plage (`Range: bytes=0-63`), pas de lecture complète |
 | Antivirus ClamAV | SOC-05 | Plafonné à 50 Mo, limite assumée et documentée à ce moment-là |
-| `Content-Disposition: attachment` forcé au téléchargement | US02 | Empêche un `.html`/`.svg` téléversé de s'exécuter depuis l'origine du bucket |
-| Limitation de débit (Redis) sur `/auth/login` et `GET /d/:token` | — | Non câblée ; planifiée mais pas encore un chantier nommé |
-| Mot de passe optionnel sur le lien de téléchargement | US09 | |
+| Limitation de débit (Redis) sur `/auth/login` et `GET/POST /d/:token` | — | Non câblée ; `GET /d/:token` est interrogé toutes les 2 s pendant l'attente de scan une fois SOC-05 livré, ce qui en fera une vraie surface de sondage sans throttle |
+| Mot de passe optionnel sur le lien de téléchargement | US09 | Le contrôle existe déjà côté téléchargement (`DownloadService.verifyPasswordAndGetUrl`) ; US09 couvre la définition du mot de passe côté envoi |
