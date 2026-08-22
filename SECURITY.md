@@ -123,5 +123,5 @@ l'URL fuit (log, historique partagé, etc.).
 |---|---|---|
 | Octets magiques (contenu réel vs extension déclarée) | SOC-05 | Lecture par plage (`Range: bytes=0-63`), pas de lecture complète |
 | Antivirus ClamAV | SOC-05 | Plafonné à 50 Mo, limite assumée et documentée à ce moment-là |
-| Limitation de débit (Redis) sur `/auth/login` et `GET/POST /d/:token` | — | Non câblée ; `GET /d/:token` est interrogé toutes les 2 s pendant l'attente de scan une fois SOC-05 livré, ce qui en fera une vraie surface de sondage sans throttle |
+| Limitation de débit (Redis) sur `/auth/login` et `GET/POST /d/:token` | — | Non câblée ; `GET /d/:token` est interrogé toutes les 2 s pendant l'attente de scan une fois SOC-05 livré, ce qui en fera une vraie surface de sondage sans throttle. Le compteur de tentatives affiché sur la page destinataire (`RecipientPage`) est **purement côté client** : aucun verrou serveur, un attaquant qui recharge la page repart de zéro |
 | Mot de passe optionnel sur le lien de téléchargement | US09 | Le contrôle existe déjà côté téléchargement (`DownloadService.verifyPasswordAndGetUrl`) ; US09 couvre la définition du mot de passe côté envoi |

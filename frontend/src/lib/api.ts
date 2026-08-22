@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
+export const API_BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
 export class ApiError extends Error {
   status: number
@@ -29,8 +29,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (await response.json()) as T
 }
 
-export function apiGet<T>(path: string, token: string): Promise<T> {
-  return request<T>(path, { headers: { Authorization: `Bearer ${token}` } })
+export function apiGet<T>(path: string, token?: string): Promise<T> {
+  return request<T>(path, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
 }
 
 export function apiPost<T>(path: string, body: unknown, token?: string): Promise<T> {
