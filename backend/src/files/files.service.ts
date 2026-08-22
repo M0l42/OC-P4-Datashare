@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { FileState } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService, UploadedPart } from '../storage/storage.service';
+import { ScanQueueService } from '../scan/scan-queue.service';
 import { InitiateUploadDto } from './dto/initiate-upload.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import {
@@ -28,6 +29,7 @@ export class FilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly scanQueue: ScanQueueService,
   ) {}
 
   async initiateUpload(ownerId: string, dto: InitiateUploadDto) {
@@ -181,21 +183,44 @@ export class FilesService {
       );
     }
 
-    // TODO(step 10) : cet endpoint doit passer par `scanning` et laisser le
-    // worker BullMQ/ClamAV décider de `ready` vs `rejected`. Le worker
-    // n'existe pas encore ; en attendant, on saute directement à `ready`
-    // pour que le téléchargement fonctionne dès la semaine 1 (règle
-    // provisoire actée dans docs/design-decisions.md, Next Steps #7).
-    // Conséquence assumée : aucun fichier n'est scanné avant ce chantier.
+    // `uploaded`, PAS `ready` : le lien ne résout que dans `ready`, et c'est
+    // le worker (SOC-05) qui décide de `ready` vs `rejected` après octets
+    // magiques et ClamAV. La règle provisoire de US01-A, qui sautait
+    // directement à `ready` faute de worker, est levée ici.
     const updated = await this.prisma.file.update({
       where: { id: file.id },
-      data: { state: FileState.ready },
+      data: { state: FileState.uploaded },
     });
+    await this.scanQueue.enqueueValidation(updated.id);
 
+    // Aucun jeton renvoyé ici (diagramme 4, étape 16 : « pas encore de
+    // lien »). Un fichier que le scan refusera ensuite ne doit jamais avoir
+    // eu de lien partageable, même brièvement. L'expéditeur récupère le sien
+    // via getUploadStatus une fois l'état `ready`.
+    return { id: updated.id, state: updated.state };
+  }
+
+  // Suivi de l'attente de scan côté expéditeur. Le jeton n'est inclus que
+  // dans l'état `ready` : même règle que ci-dessus, appliquée au polling.
+  async getUploadStatus(ownerId: string, fileId: string) {
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, ownerId },
+      select: {
+        id: true,
+        state: true,
+        downloadToken: true,
+        originalName: true,
+      },
+    });
+    if (!file) {
+      throw new NotFoundException('Upload not found');
+    }
     return {
-      id: updated.id,
-      state: updated.state,
-      downloadToken: updated.downloadToken,
+      id: file.id,
+      state: file.state,
+      originalName: file.originalName,
+      downloadToken:
+        file.state === FileState.ready ? file.downloadToken : undefined,
     };
   }
 

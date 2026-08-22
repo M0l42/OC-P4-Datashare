@@ -14,6 +14,15 @@ import { StorageService } from '../storage/storage.service';
 // la page en oracle permettant de sonder des jetons. Voir diagramme 5.
 const INVALID_LINK_MESSAGE = 'This link is not valid';
 
+// États pour lesquels la page destinataire affiche quelque chose : soit le
+// fichier est prêt, soit il est en cours de validation. Tout le reste est
+// indistinguable d'un jeton inconnu.
+const RESOLVABLE_STATES: FileState[] = [
+  FileState.uploaded,
+  FileState.scanning,
+  FileState.ready,
+];
+
 interface FileMetadata {
   originalName: string;
   sizeBytes: number;
@@ -37,7 +46,10 @@ export class DownloadService {
   }> {
     const file = await this.resolveToken(token);
 
-    if (file.state === FileState.scanning) {
+    if (file.state !== FileState.ready) {
+      // `uploaded` (en attente de prise en charge) et `scanning` (analyse en
+      // cours) sont indistinguables pour le destinataire : dans les deux cas
+      // le fichier existe et n'est pas encore téléchargeable.
       return { status: 'scanning', metadata: this.toMetadata(file) };
     }
 
@@ -58,8 +70,8 @@ export class DownloadService {
   ): Promise<{ downloadUrl: string }> {
     const file = await this.resolveToken(token);
 
-    if (file.state === FileState.scanning) {
-      // Pas d'URL possible tant que le scan n'est pas terminé ; le
+    if (file.state !== FileState.ready) {
+      // Pas d'URL possible tant que l'analyse n'est pas terminée ; le
       // client est censé re-consulter GET avant d'appeler POST, mais on
       // ne fait pas confiance à l'ordre des appels côté client.
       throw new GoneException('This file is still being scanned');
@@ -83,21 +95,26 @@ export class DownloadService {
 
   // Résout le jeton et applique la barrière de sécurité du produit : un
   // lien ne résout que dans l'état `ready` (et pas encore expiré). Tout le
-  // reste (jeton inconnu, pending/uploaded/rejected/abandoned, ou expiré
-  // par la date même si la purge quotidienne n'est pas encore passée)
-  // renvoie la même réponse générique, sauf `scanning` (état intermédiaire
-  // affiché explicitement) et `expired` (le destinataire avait déjà le
-  // lien, donc le dire ne révèle rien).
+  // reste (jeton inconnu, pending/rejected/abandoned, ou expiré par la date
+  // même si la purge quotidienne n'est pas encore passée) renvoie la même
+  // réponse générique, sauf `expired` (le destinataire avait déjà le lien,
+  // donc le dire ne révèle rien).
+  //
+  // `uploaded` compte comme « analyse en cours » au même titre que
+  // `scanning`, et ce n'est pas cosmétique : depuis SOC-05, il existe une
+  // vraie fenêtre entre `complete` et la prise en charge du job par le
+  // worker. Un destinataire qui ouvre le lien pendant cette fenêtre verrait
+  // sinon « ce lien n'est pas valide » — définitivement, puisque la page
+  // n'interroge plus après un 404 — pour un fichier parfaitement sain.
+  // Avant SOC-05, `uploaded` n'existait jamais au repos, donc le cas ne se
+  // produisait pas.
   private async resolveToken(token: string) {
     const file = await this.prisma.file.findUnique({
       where: { downloadToken: token },
       include: { owner: { select: { displayName: true } } },
     });
 
-    if (
-      !file ||
-      (file.state !== FileState.scanning && file.state !== FileState.ready)
-    ) {
+    if (!file || !RESOLVABLE_STATES.includes(file.state)) {
       if (file?.state === FileState.expired) {
         throw new GoneException(
           'This file is no longer available: it has expired',

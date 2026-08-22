@@ -65,8 +65,28 @@ export class FilesController {
     return this.filesService.getUploadParts(req.user.userId, id);
   }
 
+  @ApiOperation({
+    summary: "Suivre l'état d'un fichier pendant l'analyse",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "État courant ; le jeton n'est inclus que dans l'état `ready`",
+  })
+  @ApiResponse({
+    status: 404,
+    description: "Envoi inconnu ou n'appartenant pas à l'utilisateur",
+  })
+  @Get(':id/status')
+  getStatus(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return this.filesService.getUploadStatus(req.user.userId, id);
+  }
+
   @ApiOperation({ summary: 'Finaliser un téléversement multipart' })
-  @ApiResponse({ status: 200, description: 'Fichier finalisé' })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Fichier accepté, analyse en file d'attente (aucun lien avant l'état `ready`)",
+  })
   @ApiResponse({
     status: 404,
     description: "Envoi inconnu ou n'appartenant pas à l'utilisateur",
