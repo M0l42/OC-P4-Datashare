@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
-import { apiPost, ApiError } from '../lib/api'
+import { apiDelete, apiPost, ApiError } from '../lib/api'
 
 const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 Gio, refus immédiat côté client
+const MAX_PART_ATTEMPTS = 3
+const RETRY_DELAYS_MS = [500, 1500, 3000] // attente croissante entre tentatives
 
 interface InitiateResponse {
   fileId: string
@@ -17,21 +19,76 @@ interface CompleteResponse {
 
 type Status =
   | { kind: 'idle' }
-  | { kind: 'uploading'; part: number; total: number }
+  | { kind: 'uploading'; fileId: string; bytesSent: number; totalBytes: number }
   | { kind: 'done'; downloadToken: string }
+  | { kind: 'cancelled' }
   | { kind: 'error'; message: string }
 
 interface UploaderProps {
   token: string
 }
 
-// US01-B : découpe le fichier et pousse les parties directement vers le
-// stockage (les octets ne traversent ni l'API ni nginx). Progression fine,
-// reprise de partie et annulation sont US01-C, pas ce composant : l'envoi
-// est ici strictement séquentiel et sans nouvelle tentative.
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// PUT une partie via XMLHttpRequest plutôt que fetch : c'est le seul moyen
+// d'obtenir une progression en octets pendant l'envoi (xhr.upload.onprogress).
+// fetch n'expose pas cet évènement, seulement la réponse complète.
+function putPart(
+  url: string,
+  blob: Blob,
+  bytesBeforeThisPart: number,
+  onProgress: (bytesSentTotal: number) => void,
+  xhrRef: { current: XMLHttpRequest | null },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhrRef.current = xhr
+    xhr.open('PUT', url)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress(bytesBeforeThisPart + e.loaded)
+      }
+    }
+    xhr.onload = () => {
+      xhrRef.current = null
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const etag = xhr.getResponseHeader('ETag')
+        if (!etag) {
+          reject(new Error('ETag illisible (règle CORS ExposeHeaders manquante ?)'))
+          return
+        }
+        resolve(etag)
+      } else {
+        reject(new Error(`HTTP ${xhr.status}`))
+      }
+    }
+    xhr.onerror = () => {
+      xhrRef.current = null
+      reject(new Error('Erreur réseau'))
+    }
+    xhr.onabort = () => {
+      xhrRef.current = null
+      reject(new DOMException('Annulé', 'AbortError'))
+    }
+    xhr.send(blob)
+  })
+}
+
+// US01-B/US01-C : découpe le fichier et pousse les parties directement vers le
+// stockage (les octets ne traversent ni l'API ni nginx). Reprise après
+// rechargement de page (US01-R) reste hors périmètre : ce composant ne gère
+// que la résilience PENDANT un envoi en cours (retry par partie, annulation).
 export function Uploader({ token }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const inputRef = useRef<HTMLInputElement>(null)
+  const xhrRef = useRef<XMLHttpRequest | null>(null)
+  // "demandée" pilote l'arrêt de la boucle ; "gérée" empêche un double DELETE
+  // si l'utilisateur clique Annuler plusieurs fois ou si un abort XHR et le
+  // clic se chevauchent.
+  const cancelRequestedRef = useRef(false)
+  const cancelHandledRef = useRef(false)
 
   async function handleFile(file: File) {
     if (status.kind === 'uploading') {
@@ -42,6 +99,9 @@ export function Uploader({ token }: UploaderProps) {
       return
     }
 
+    cancelRequestedRef.current = false
+    cancelHandledRef.current = false
+
     try {
       const initiate = await apiPost<InitiateResponse>(
         '/files/uploads',
@@ -49,24 +109,65 @@ export function Uploader({ token }: UploaderProps) {
         token,
       )
 
+      if (cancelRequestedRef.current) {
+        return
+      }
+      setStatus({ kind: 'uploading', fileId: initiate.fileId, bytesSent: 0, totalBytes: file.size })
+
       const completedParts: { partNumber: number; etag: string }[] = []
+      let bytesBeforeCurrentPart = 0
+
       for (const part of initiate.parts) {
-        setStatus({ kind: 'uploading', part: part.partNumber, total: initiate.parts.length })
+        if (cancelRequestedRef.current) {
+          return
+        }
 
         const start = (part.partNumber - 1) * initiate.partSize
         const chunk = file.slice(start, start + initiate.partSize)
+        const partBytesStart = bytesBeforeCurrentPart
 
-        const response = await fetch(part.url, { method: 'PUT', body: chunk })
-        if (!response.ok) {
-          throw new Error(`Échec de l'envoi de la partie ${part.partNumber}`)
+        let etag: string | null = null
+        let lastError: unknown = null
+
+        for (let attempt = 0; attempt < MAX_PART_ATTEMPTS; attempt++) {
+          try {
+            etag = await putPart(
+              part.url,
+              chunk,
+              partBytesStart,
+              (bytesSentTotal) => {
+                setStatus((prev) => (prev.kind === 'uploading' ? { ...prev, bytesSent: bytesSentTotal } : prev))
+              },
+              xhrRef,
+            )
+            break
+          } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              // Annulation en cours : le nettoyage (DELETE + statut) est géré
+              // par handleCancelClick, pas ici.
+              return
+            }
+            lastError = err
+            if (attempt < MAX_PART_ATTEMPTS - 1) {
+              await sleep(RETRY_DELAYS_MS[attempt])
+              if (cancelRequestedRef.current) {
+                return
+              }
+            }
+          }
         }
-        const etag = response.headers.get('ETag')
+
         if (!etag) {
-          throw new Error(
-            `Partie ${part.partNumber} envoyée mais ETag illisible (règle CORS ExposeHeaders manquante ?)`,
-          )
+          throw lastError instanceof Error ? lastError : new Error(`Échec de l'envoi de la partie ${part.partNumber}`)
         }
+
         completedParts.push({ partNumber: part.partNumber, etag })
+        bytesBeforeCurrentPart += chunk.size
+        setStatus((prev) => (prev.kind === 'uploading' ? { ...prev, bytesSent: bytesBeforeCurrentPart } : prev))
+      }
+
+      if (cancelRequestedRef.current) {
+        return
       }
 
       const complete = await apiPost<CompleteResponse>(
@@ -76,11 +177,35 @@ export function Uploader({ token }: UploaderProps) {
       )
       setStatus({ kind: 'done', downloadToken: complete.downloadToken })
     } catch (err) {
-      setStatus({
-        kind: 'error',
-        message: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Envoi échoué',
-      })
+      if (!cancelRequestedRef.current) {
+        setStatus({
+          kind: 'error',
+          message: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Envoi échoué',
+        })
+      }
     }
+  }
+
+  function handleCancelClick() {
+    if (status.kind !== 'uploading' || cancelHandledRef.current) {
+      return
+    }
+    cancelHandledRef.current = true
+    cancelRequestedRef.current = true
+    const fileId = status.fileId
+    // Stoppe le transfert en cours immédiatement ; s'il n'y a aucune requête
+    // en vol (entre deux parties, ou pendant l'attente d'une nouvelle
+    // tentative), c'est un no-op et le DELETE ci-dessous suffit.
+    xhrRef.current?.abort()
+    void (async () => {
+      try {
+        await apiDelete(`/files/uploads/${fileId}`, token)
+      } catch {
+        // Best effort : si le DELETE échoue, la ligne reste `pending` et sera
+        // récupérée par le reaper (US10), pas de partie orpheline durable.
+      }
+      setStatus({ kind: 'cancelled' })
+    })()
   }
 
   const isUploading = status.kind === 'uploading'
@@ -116,11 +241,19 @@ export function Uploader({ token }: UploaderProps) {
       />
 
       {status.kind === 'uploading' && (
-        <p>
-          Envoi de la partie {status.part} / {status.total}…
-        </p>
+        <div>
+          <progress value={status.bytesSent} max={status.totalBytes} style={{ width: '100%' }} />
+          <p>
+            {Math.round((status.bytesSent / status.totalBytes) * 100)} % ({status.bytesSent} / {status.totalBytes}{' '}
+            octets)
+          </p>
+          <button type="button" onClick={handleCancelClick}>
+            Annuler
+          </button>
+        </div>
       )}
       {status.kind === 'done' && <p>Envoyé. Jeton : {status.downloadToken}</p>}
+      {status.kind === 'cancelled' && <p>Envoi annulé.</p>}
       {status.kind === 'error' && <p role="alert">{status.message}</p>}
     </div>
   )
