@@ -152,6 +152,13 @@ export class FilesService {
       sortedParts,
     );
 
+    // Un PUT pré-signé ne contraint pas Content-Length (vérifié au spike :
+    // 1 Mio déclaré, 25 Mio poussés, accepté sans erreur). La taille déclarée
+    // à l'initiation n'est donc pas un contrôle ; HeadObject après complétion
+    // est le seul réel. Deux vérifications distinctes, pas une seule :
+    // le plafond absolu (indépendant de ce que le client a annoncé), et la
+    // correspondance exacte avec ce qu'il a annoncé (un client honnête
+    // produit toujours un objet de taille strictement égale à `sizeBytes`).
     const { contentLength } = await this.storage.headObject(file.storageKey!);
     if (contentLength > MAX_FILE_SIZE_BYTES) {
       await this.storage.deleteObject(file.storageKey!);
@@ -161,6 +168,16 @@ export class FilesService {
       });
       throw new PayloadTooLargeException(
         'Uploaded object exceeds the 1 GiB limit',
+      );
+    }
+    if (contentLength !== file.sizeBytes) {
+      await this.storage.deleteObject(file.storageKey!);
+      await this.prisma.file.update({
+        where: { id: file.id },
+        data: { state: FileState.rejected },
+      });
+      throw new BadRequestException(
+        `Uploaded object size (${contentLength}) does not match declared size (${file.sizeBytes})`,
       );
     }
 

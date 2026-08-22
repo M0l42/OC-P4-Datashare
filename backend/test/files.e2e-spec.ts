@@ -116,6 +116,48 @@ describe('Files uploads (e2e)', () => {
     expect(updated.state).toBe('ready');
   });
 
+  it('rejects completion when the real size does not match the declared size', async () => {
+    const initiate = await request(app.getHttpServer())
+      .post('/files/uploads')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        originalName: 'e2e-mismatch.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 13,
+      })
+      .expect(201);
+
+    const body = initiate.body as { fileId: string };
+    createdFileIds.push(body.fileId);
+    const file = await prisma.file.findUniqueOrThrow({
+      where: { id: body.fileId },
+    });
+
+    // Déclaré : 13 octets. Réellement poussé : 20. Une URL PUT pré-signée ne
+    // contraint pas Content-Length (voir SECURITY.md), donc ceci est accepté
+    // par MinIO ; c'est `complete` qui doit le refuser.
+    const putResult = await internalS3.send(
+      new UploadPartCommand({
+        Bucket: process.env.S3_BUCKET,
+        Key: file.storageKey!,
+        UploadId: file.uploadId!,
+        PartNumber: 1,
+        Body: Buffer.from('this is twenty bytes'),
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/files/uploads/${body.fileId}/complete`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ parts: [{ partNumber: 1, etag: putResult.ETag }] })
+      .expect(400);
+
+    const updated = await prisma.file.findUniqueOrThrow({
+      where: { id: body.fileId },
+    });
+    expect(updated.state).toBe('rejected');
+  });
+
   it('lists missing parts for an untouched multi-part upload', async () => {
     const initiate = await request(app.getHttpServer())
       .post('/files/uploads')

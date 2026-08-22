@@ -231,6 +231,38 @@ describe('FilesService', () => {
         expect.objectContaining({ data: { state: FileState.rejected } }),
       );
     });
+
+    it('rejects when the real size is smaller than the declared size', async () => {
+      mockPrismaService.file.findFirst.mockResolvedValue(pendingFile);
+      mockStorageService.headObject.mockResolvedValue({ contentLength: 10 });
+
+      await expect(
+        service.completeUpload(ownerId, fileId, dto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockStorageService.deleteObject).toHaveBeenCalledWith(
+        pendingFile.storageKey,
+      );
+      expect(mockPrismaService.file.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { state: FileState.rejected } }),
+      );
+    });
+
+    it('rejects when the real size exceeds the declared size but stays under the 1 GiB cap', async () => {
+      // Distinct from the "exceeds 1 GiB" case above: this proves the
+      // declared-vs-actual check catches a mismatch the absolute-cap check
+      // alone would silently accept.
+      mockPrismaService.file.findFirst.mockResolvedValue(pendingFile);
+      mockStorageService.headObject.mockResolvedValue({ contentLength: 20 });
+
+      await expect(
+        service.completeUpload(ownerId, fileId, dto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockStorageService.deleteObject).toHaveBeenCalledWith(
+        pendingFile.storageKey,
+      );
+    });
   });
 
   describe('abortUpload', () => {
