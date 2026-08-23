@@ -29,6 +29,7 @@ type Status =
 
 interface UploaderProps {
   token: string
+  onUnauthorized: () => void
 }
 
 function sleep(ms: number) {
@@ -81,7 +82,7 @@ function putPart(
 // Slices the file and pushes parts straight to storage — the bytes never
 // cross the API or nginx. Handles resilience during a send (per-part retry,
 // cancel); surviving a page reload is a separate job.
-export function Uploader({ token }: UploaderProps) {
+export function Uploader({ token, onUnauthorized }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const inputRef = useRef<HTMLInputElement>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
@@ -176,6 +177,10 @@ export function Uploader({ token }: UploaderProps) {
       )
       setStatus({ kind: 'done', downloadToken: complete.downloadToken })
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onUnauthorized()
+        return
+      }
       if (!cancelRequestedRef.current) {
         setStatus({
           kind: 'error',
@@ -218,7 +223,7 @@ export function Uploader({ token }: UploaderProps) {
   }
 
   return (
-    <PageShell title="Envoyer un fichier" loggedIn>
+    <PageShell title="Envoyer un fichier" loggedIn onHeaderAction={onUnauthorized}>
       <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
         <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
         <Button

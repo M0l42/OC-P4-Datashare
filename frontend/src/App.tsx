@@ -19,12 +19,21 @@ function App() {
     setToken(newToken)
   }
 
+  function handleLogout() {
+    localStorage.removeItem(TOKEN_STORAGE_KEY)
+    setToken(null)
+  }
+
   const recipientMatch = RECIPIENT_PATH_PATTERN.exec(window.location.pathname)
   if (recipientMatch) {
     return <RecipientPage token={recipientMatch[1]} />
   }
 
-  return token ? <Uploader token={token} /> : <LoginForm onLogin={handleLogin} />
+  return token ? (
+    <Uploader token={token} onUnauthorized={handleLogout} />
+  ) : (
+    <LoginForm onLogin={handleLogin} />
+  )
 }
 
 export default App
