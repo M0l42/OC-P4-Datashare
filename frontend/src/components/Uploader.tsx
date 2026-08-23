@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { apiDelete, apiPost, ApiError } from '../lib/api'
+import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
 import { formatFileSize } from '../lib/format'
 import { Button, Callout, PageShell } from './ds'
 import styles from './Uploader.module.css'
@@ -7,6 +7,8 @@ import styles from './Uploader.module.css'
 const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // rejected client-side before any request
 const MAX_PART_ATTEMPTS = 3
 const RETRY_DELAYS_MS = [500, 1500, 3000] // growing backoff between attempts
+const SCAN_POLL_INTERVAL_MS = 1500
+const SCAN_POLL_MAX_ATTEMPTS = 120 // ~3 minutes before giving up
 
 interface InitiateResponse {
   fileId: string
@@ -17,12 +19,19 @@ interface InitiateResponse {
 interface CompleteResponse {
   id: string
   state: string
-  downloadToken: string
+}
+
+interface StatusResponse {
+  id: string
+  state: string
+  originalName: string
+  downloadToken?: string
 }
 
 type Status =
   | { kind: 'idle' }
   | { kind: 'uploading'; fileId: string; bytesSent: number; totalBytes: number }
+  | { kind: 'scanning' }
   | { kind: 'done'; downloadToken: string }
   | { kind: 'cancelled' }
   | { kind: 'error'; message: string }
@@ -34,6 +43,23 @@ interface UploaderProps {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// /complete never carries a link (diagramme 4, étape 16 : « pas encore de
+// lien ») — the worker still has to run ClamAV + magic-byte checks. Poll
+// /status until it settles on `ready` (link available) or `rejected`.
+async function pollUntilScanned(fileId: string, token: string): Promise<string> {
+  for (let attempt = 0; attempt < SCAN_POLL_MAX_ATTEMPTS; attempt++) {
+    const status = await apiGet<StatusResponse>(`/files/uploads/${fileId}/status`, token)
+    if (status.state === 'ready' && status.downloadToken) {
+      return status.downloadToken
+    }
+    if (status.state === 'rejected') {
+      throw new Error('Fichier refusé par l’analyse de sécurité.')
+    }
+    await sleep(SCAN_POLL_INTERVAL_MS)
+  }
+  throw new Error('Analyse du fichier trop longue, réessaie plus tard.')
 }
 
 // XMLHttpRequest rather than fetch: xhr.upload.onprogress is the only way to
@@ -170,12 +196,14 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
         return
       }
 
-      const complete = await apiPost<CompleteResponse>(
+      await apiPost<CompleteResponse>(
         `/files/uploads/${initiate.fileId}/complete`,
         { parts: completedParts },
         token,
       )
-      setStatus({ kind: 'done', downloadToken: complete.downloadToken })
+      setStatus({ kind: 'scanning' })
+      const downloadToken = await pollUntilScanned(initiate.fileId, token)
+      setStatus({ kind: 'done', downloadToken })
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         onUnauthorized()
@@ -223,7 +251,7 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
   }
 
   return (
-    <PageShell title="Envoyer un fichier" loggedIn onHeaderAction={onUnauthorized}>
+    <PageShell title="Envoyer un fichier" loggedIn>
       <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
         <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
         <Button
@@ -263,6 +291,8 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
           </Button>
         </div>
       )}
+
+      {status.kind === 'scanning' && <Callout variant="info">Analyse de sécurité en cours…</Callout>}
 
       {status.kind === 'done' && (
         <>
