@@ -22,10 +22,9 @@ export type VerifyResult =
   | { kind: 'expired' }
   | { kind: 'invalid' }
 
-// Deux appels HTTP bruts plutôt que le helper `apiGet` générique de api.ts :
-// `scanning` (202) et `passwordRequired` (200) renvoient un corps JSON de
-// forme identique (mêmes champs de métadonnées, jamais `downloadUrl`) — seul
-// le code de statut HTTP les distingue, et `apiGet` ne l'expose pas.
+// Raw fetch instead of the apiGet helper: "still checking" and "password
+// required" return identically shaped bodies and differ only by status code,
+// which apiGet doesn't expose.
 export async function fetchDownloadMetadata(token: string): Promise<MetadataResult> {
   const res = await fetch(`${API_BASE}/d/${encodeURIComponent(token)}`)
   if (res.status === 410) return { kind: 'expired' }

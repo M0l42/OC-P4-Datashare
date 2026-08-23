@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Callout } from './Callout'
+import { Button, Callout, Input, PageShell } from './ds'
+import styles from './RecipientPage.module.css'
 import { fetchDownloadMetadata, verifyDownloadPassword, type DownloadMetadata } from '../lib/download'
 import { expiryTone } from '../lib/expiryTone'
 import { usePollUntil } from '../lib/usePollUntil'
@@ -19,13 +20,9 @@ interface RecipientPageProps {
   token: string
 }
 
-// UI-01 : les 4 états que les maquettes ne couvrent pas (attente de scan,
-// mot de passe erroné, jeton invalide, fichier refusé — ces deux derniers
-// rendus à l'identique) posés sur les 4 états qu'elles couvrent (mot de passe
-// requis, prêt + Info, prêt + Alert, expiré). Aucune page destinataire
-// n'existait avant ce ticket ; la mise en page suit les maquettes
-// (`design/figma/telechargement/`), le style détaillé (police, tokens de
-// couleur) reste à câbler par UI-02.
+// The recipient view, covering every state a link can resolve to. Unknown
+// tokens and rejected files render identically on purpose — telling them
+// apart would let someone probe for which tokens ever existed.
 export function RecipientPage({ token }: RecipientPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [password, setPassword] = useState('');
@@ -62,9 +59,8 @@ export function RecipientPage({ token }: RecipientPageProps) {
     void load();
   }, [load]);
 
-  // Re-consulte GET tant que l'état est `scanning`. « Ce fichier est en
-  // cours de vérification. Réessayez dans quelques instants. » resterait un
-  // mensonge si personne ne réessayait jamais.
+  // "Réessayez dans quelques instants" would be a lie if nothing ever
+  // retried, so poll while the file is still being checked.
   const { timedOut } = usePollUntil(() => void load(), phase.kind === 'scanning');
 
   useEffect(() => {
@@ -86,9 +82,8 @@ export function RecipientPage({ token }: RecipientPageProps) {
         setPhase({ kind: 'ready', meta: phase.meta, downloadUrl: result.downloadUrl });
       } else if (result.kind === 'wrongPassword') {
         setAttempts((n) => n + 1);
-        // Compteur purement côté client, pour l'UX seulement : aucune
-        // limitation n'est appliquée côté serveur (voir SECURITY.md,
-        // « à venir »). Ne jamais présenter ceci comme un vrai verrou.
+        // Cosmetic only — nothing throttles attempts server-side yet, so a
+        // reload resets this. Don't present it as a lockout.
         setPasswordError('Ce mot de passe est incorrect.');
       } else if (result.kind === 'expired') {
         setPhase({ kind: 'expired' });
@@ -103,104 +98,106 @@ export function RecipientPage({ token }: RecipientPageProps) {
   }
 
   if (phase.kind === 'loading') {
-    return <main><p>Chargement…</p></main>;
+    return (
+      <PageShell title="Télécharger un fichier">
+        <p>Chargement…</p>
+      </PageShell>
+    );
   }
 
   if (phase.kind === 'invalid') {
     return (
-      <main>
-        <h1>Télécharger un fichier</h1>
+      <PageShell title="Télécharger un fichier">
         <Callout variant="error">Ce lien n'est pas valide.</Callout>
-      </main>
+      </PageShell>
     );
   }
 
   if (phase.kind === 'expired') {
     return (
-      <main>
-        <h1>Télécharger un fichier</h1>
-        <Callout variant="error">Ce fichier n'est plus disponible en téléchargement car il a expiré.</Callout>
-      </main>
+      <PageShell title="Télécharger un fichier">
+        <Callout variant="error">
+          Ce fichier n'est plus disponible en téléchargement car il a expiré.
+        </Callout>
+      </PageShell>
     );
   }
 
   if (phase.kind === 'error') {
     return (
-      <main>
-        <h1>Télécharger un fichier</h1>
+      <PageShell title="Télécharger un fichier">
         <Callout variant="error">Une erreur est survenue. Réessayez plus tard.</Callout>
-      </main>
+      </PageShell>
     );
   }
 
   if (phase.kind === 'timedOut') {
     return (
-      <main>
-        <h1>Télécharger un fichier</h1>
+      <PageShell title="Télécharger un fichier">
         <Callout variant="error">
           La vérification de ce fichier prend plus de temps que prévu. Réessayez plus tard.
         </Callout>
-      </main>
+      </PageShell>
     );
   }
 
-  // scanning, passwordRequired, ready partagent tous l'en-tête fichier.
+  // scanning, passwordRequired and ready all share the file header.
   const { meta } = phase;
 
   return (
-    <main>
-      <h1>Télécharger un fichier</h1>
+    <PageShell title="Télécharger un fichier">
       <p>
         {meta.originalName} — {formatFileSize(meta.sizeBytes)}
       </p>
       {meta.senderName && <p>Envoyé par {meta.senderName}</p>}
 
       {phase.kind === 'scanning' && (
-        <Callout variant="info">
-          Ce fichier est en cours de vérification. Réessayez dans quelques instants.
-        </Callout>
+        <>
+          <Callout variant="info">
+            Ce fichier est en cours de vérification. Réessayez dans quelques instants.
+          </Callout>
+          <Button variant="primary" fullWidth disabled>
+            Télécharger
+          </Button>
+        </>
       )}
 
       {phase.kind === 'ready' && (
         <>
           <Callout variant={expiryTone(meta.expiresAt)}>{expiryMessage(meta.expiresAt)}</Callout>
-          <p>
-            <a href={phase.downloadUrl}>Télécharger</a>
-          </p>
+          <Button variant="primary" fullWidth onClick={() => (window.location.href = phase.downloadUrl)}>
+            Télécharger
+          </Button>
         </>
       )}
 
       {phase.kind === 'passwordRequired' && (
-        <form onSubmit={handlePasswordSubmit}>
+        <form onSubmit={handlePasswordSubmit} className={styles.form}>
           <Callout variant={expiryTone(meta.expiresAt)}>{expiryMessage(meta.expiresAt)}</Callout>
           {passwordError && (
             <Callout variant="error">
-              {passwordError}
-              <br />
-              <small>Tentative {attempts}</small>
+              {passwordError} Tentative {attempts}.
             </Callout>
           )}
-          <p>
-            <label>
-              Mot de passe
-              <br />
-              <input
-                type="password"
-                placeholder="Saisissez le mot de passe…"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </label>
-          </p>
-          <button type="submit" disabled={submitting || password.length === 0}>
+          <Input
+            label="Mot de passe"
+            type="password"
+            placeholder="Saisissez le mot de passe…"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            disabled={submitting || password.length === 0}
+          >
             Télécharger
-          </button>
+          </Button>
         </form>
       )}
-
-      {phase.kind === 'scanning' && <button type="button" disabled>Télécharger</button>}
-    </main>
+    </PageShell>
   );
 }
 

@@ -1,0 +1,97 @@
+/*
+ * Design system tokens, extracted from the Figma file
+ * (design/figma/datashare-file.json) rather than eyeballed from screenshots.
+ * Components never hardcode a colour — if a value is missing, add it here.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Inter:wght@400;600&display=swap');
+
+:root {
+  /* DM Sans for headings, UI and fields; Inter for running text. Never a
+   * default system stack. */
+  --ds-font-ui: 'DM Sans', system-ui, sans-serif;
+  --ds-font-body: 'Inter', system-ui, sans-serif;
+
+  --ds-text-h1-size: 32px;
+  --ds-text-h1-line: 40px;
+  --ds-text-h2-size: 28px;
+  --ds-text-h2-line: 40px;
+  --ds-text-xlarge-size: 30px;
+  --ds-text-xlarge-line: 40px;
+  --ds-text-body-size: 16px;
+  --ds-text-body-line: 22px;
+  --ds-text-normal-line: 24px;
+  --ds-text-small-size: 14px;
+  --ds-text-small-line: 16px;
+
+  /* Text */
+  --ds-color-text: #1e1e1e;
+  --ds-color-text-muted: #757575;
+  --ds-color-text-placeholder: #b3b3b3;
+  --ds-color-text-on-dark: #f3eeea;
+  --ds-color-text-on-accent: #ffffff;
+
+  /* Surfaces */
+  --ds-color-surface: #ffffff;
+  --ds-color-border: #d9d9d9;
+  --ds-gradient-page: linear-gradient(180deg, #ffb88c 0%, #de6262 100%);
+
+  /* Button — primary. The fill and border are translucent in Figma (13% and
+   * 50%); at full strength the amber label on amber fill is unreadable. */
+  --ds-btn-primary-bg: rgba(255, 129, 45, 0.13);
+  --ds-btn-primary-border: rgba(205, 94, 20, 0.5);
+  --ds-btn-primary-fg: #ba681f;
+
+  /* Button — secondary */
+  --ds-btn-secondary-border: #ffa569;
+  --ds-btn-secondary-fg: #e27f29;
+
+  /* Button — tertiary (no fill, no border) */
+  --ds-btn-tertiary-fg: #e27f29;
+
+  /* Button — dark */
+  --ds-btn-dark-bg: #2c2c2c;
+  --ds-btn-dark-fg: #f3eeea;
+
+  /* Button — disabled, shared by every variant */
+  --ds-btn-disabled-fg: #aea49b;
+  --ds-btn-disabled-bg: #f4eee9;
+  --ds-btn-disabled-fill: rgba(183, 167, 156, 0.2);
+  --ds-btn-disabled-border: rgba(183, 167, 156, 0.2);
+
+  /* Callout */
+  --ds-callout-info-bg: #e2ecff;
+  --ds-callout-info-border: #b1c9f5;
+  --ds-callout-info-fg: #2a3f72;
+  --ds-callout-alert-bg: #fff5ed;
+  --ds-callout-alert-border: #e6cbb5;
+  --ds-callout-alert-fg: #aa642b;
+  --ds-callout-error-bg: #ffe2e2;
+  --ds-callout-error-border: #e8a6a6;
+  --ds-callout-error-fg: #9c3333;
+
+  /* Switch — track is translucent in Figma too */
+  --ds-switch-bg: rgba(255, 193, 145, 0.16);
+  --ds-switch-border: rgba(215, 99, 11, 0.2);
+  --ds-switch-selected-bg: #e77a6e;
+
+  /* Geometry */
+  --ds-radius: 8px;
+  --ds-radius-pill: 24px;
+  /* Small is 32px, below the 44px touch target — use medium on mobile. */
+  --ds-size-small: 32px;
+  --ds-size-medium: 40px;
+
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+
+  --ds-shadow-200:
+    0 1px 4px rgba(12, 12, 13, 0.05), 0 1px 4px rgba(12, 12, 13, 0.1);
+
+  --ds-breakpoint-mobile: 393px;
+  --ds-breakpoint-desktop: 1440px;
+}

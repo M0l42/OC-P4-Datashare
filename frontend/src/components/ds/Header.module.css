@@ -1,0 +1,28 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+  height: 72px;
+  padding-inline: var(--ds-space-8);
+  box-sizing: border-box;
+}
+
+.brand {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-h1-size);
+  line-height: var(--ds-text-h1-line);
+  font-weight: 700;
+  color: #000000;
+  margin: 0;
+  text-decoration: none;
+}
+
+/* On mobile the mockups tuck the button next to the logo instead of pushing
+ * it to the far edge. */
+@media (max-width: 640px) {
+  .header {
+    justify-content: flex-start;
+    padding-inline: var(--ds-space-4);
+  }
+}

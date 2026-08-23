@@ -1,9 +1,12 @@
 import { useRef, useState } from 'react'
 import { apiDelete, apiPost, ApiError } from '../lib/api'
+import { formatFileSize } from '../lib/format'
+import { Button, Callout, PageShell } from './ds'
+import styles from './Uploader.module.css'
 
-const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 Gio, refus immédiat côté client
+const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // rejected client-side before any request
 const MAX_PART_ATTEMPTS = 3
-const RETRY_DELAYS_MS = [500, 1500, 3000] // attente croissante entre tentatives
+const RETRY_DELAYS_MS = [500, 1500, 3000] // growing backoff between attempts
 
 interface InitiateResponse {
   fileId: string
@@ -32,9 +35,8 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// PUT une partie via XMLHttpRequest plutôt que fetch : c'est le seul moyen
-// d'obtenir une progression en octets pendant l'envoi (xhr.upload.onprogress).
-// fetch n'expose pas cet évènement, seulement la réponse complète.
+// XMLHttpRequest rather than fetch: xhr.upload.onprogress is the only way to
+// get byte-level progress during the send. fetch only resolves at the end.
 function putPart(
   url: string,
   blob: Blob,
@@ -76,17 +78,15 @@ function putPart(
   })
 }
 
-// US01-B/US01-C : découpe le fichier et pousse les parties directement vers le
-// stockage (les octets ne traversent ni l'API ni nginx). Reprise après
-// rechargement de page (US01-R) reste hors périmètre : ce composant ne gère
-// que la résilience PENDANT un envoi en cours (retry par partie, annulation).
+// Slices the file and pushes parts straight to storage — the bytes never
+// cross the API or nginx. Handles resilience during a send (per-part retry,
+// cancel); surviving a page reload is a separate job.
 export function Uploader({ token }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const inputRef = useRef<HTMLInputElement>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
-  // "demandée" pilote l'arrêt de la boucle ; "gérée" empêche un double DELETE
-  // si l'utilisateur clique Annuler plusieurs fois ou si un abort XHR et le
-  // clic se chevauchent.
+  // "requested" stops the loop; "handled" prevents a second DELETE if cancel
+  // is clicked twice, or if an XHR abort and the click overlap.
   const cancelRequestedRef = useRef(false)
   const cancelHandledRef = useRef(false)
 
@@ -143,8 +143,7 @@ export function Uploader({ token }: UploaderProps) {
             break
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
-              // Annulation en cours : le nettoyage (DELETE + statut) est géré
-              // par handleCancelClick, pas ici.
+              // Cancelling: handleCancelClick owns the cleanup, not this.
               return
             }
             lastError = err
@@ -193,16 +192,15 @@ export function Uploader({ token }: UploaderProps) {
     cancelHandledRef.current = true
     cancelRequestedRef.current = true
     const fileId = status.fileId
-    // Stoppe le transfert en cours immédiatement ; s'il n'y a aucune requête
-    // en vol (entre deux parties, ou pendant l'attente d'une nouvelle
-    // tentative), c'est un no-op et le DELETE ci-dessous suffit.
+    // Stops the in-flight transfer at once. Between parts, or during a retry
+    // backoff, there is nothing to abort and the DELETE below is enough.
     xhrRef.current?.abort()
     void (async () => {
       try {
         await apiDelete(`/files/uploads/${fileId}`, token)
       } catch {
-        // Best effort : si le DELETE échoue, la ligne reste `pending` et sera
-        // récupérée par le reaper (US10), pas de partie orpheline durable.
+        // Best effort: if this fails the row stays pending and the scheduled
+        // reaper collects it, so nothing is orphaned for long.
       }
       setStatus({ kind: 'cancelled' })
     })()
@@ -220,41 +218,59 @@ export function Uploader({ token }: UploaderProps) {
   }
 
   return (
-    <div
-      onDrop={onDrop}
-      onDragOver={(e) => e.preventDefault()}
-      style={{ border: '2px dashed #999', padding: '2rem', textAlign: 'center' }}
-    >
-      <p>Glisser-déposer un fichier ici, ou</p>
-      <button type="button" disabled={isUploading} onClick={() => inputRef.current?.click()}>
-        Choisir un fichier
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) void handleFile(file)
-          e.target.value = ''
-        }}
-      />
+    <PageShell title="Envoyer un fichier" loggedIn>
+      <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+        <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
+        <Button
+          variant="secondary"
+          disabled={isUploading}
+          onClick={() => inputRef.current?.click()}
+        >
+          Choisir un fichier
+        </Button>
+        <input
+          ref={inputRef}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void handleFile(file)
+            e.target.value = ''
+          }}
+        />
+      </div>
 
       {status.kind === 'uploading' && (
-        <div>
-          <progress value={status.bytesSent} max={status.totalBytes} style={{ width: '100%' }} />
-          <p>
-            {Math.round((status.bytesSent / status.totalBytes) * 100)} % ({status.bytesSent} / {status.totalBytes}{' '}
-            octets)
+        <div className={styles.progressBlock}>
+          <progress
+            className={styles.progress}
+            value={status.bytesSent}
+            max={status.totalBytes}
+          />
+          {/* aria-live so the percentage is announced as it moves, not just
+              painted. */}
+          <p className={styles.progressLabel} aria-live="polite">
+            {Math.round((status.bytesSent / status.totalBytes) * 100)} % —{' '}
+            {formatFileSize(status.bytesSent)} sur {formatFileSize(status.totalBytes)}
           </p>
-          <button type="button" onClick={handleCancelClick}>
+          <Button variant="tertiary" onClick={handleCancelClick}>
             Annuler
-          </button>
+          </Button>
         </div>
       )}
-      {status.kind === 'done' && <p>Envoyé. Jeton : {status.downloadToken}</p>}
-      {status.kind === 'cancelled' && <p>Envoi annulé.</p>}
-      {status.kind === 'error' && <p role="alert">{status.message}</p>}
-    </div>
+
+      {status.kind === 'done' && (
+        <>
+          <Callout variant="info">Envoi terminé. Ton lien est prêt à être partagé.</Callout>
+          <p className={styles.token}>{downloadLink(status.downloadToken)}</p>
+        </>
+      )}
+      {status.kind === 'cancelled' && <Callout variant="alert">Envoi annulé.</Callout>}
+      {status.kind === 'error' && <Callout variant="error">{status.message}</Callout>}
+    </PageShell>
   )
+}
+
+function downloadLink(token: string): string {
+  return `${window.location.origin}/d/${token}`
 }

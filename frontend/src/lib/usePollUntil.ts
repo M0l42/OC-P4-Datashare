@@ -5,10 +5,8 @@ const SLOW_INTERVAL_MS = 5_000
 const SWITCH_TO_SLOW_AFTER_MS = 30_000
 const GIVE_UP_AFTER_MS = 120_000
 
-// Rythme partagé entre la page destinataire (attente de scan) et l'écran
-// d'attente de l'expéditeur (pas encore construit) : 2 s pendant les 30
-// premières secondes, puis 5 s, abandon à 2 min. `active` déclenche/arrête le
-// polling depuis l'appelant (ex: dès que l'état n'est plus `scanning`).
+// 2s for the first 30s, then 5s, giving up at 2min. `active` lets the caller
+// start and stop the polling.
 export function usePollUntil(callback: () => void, active: boolean): { timedOut: boolean } {
   const [timedOut, setTimedOut] = useState(false)
   const callbackRef = useRef(callback)
