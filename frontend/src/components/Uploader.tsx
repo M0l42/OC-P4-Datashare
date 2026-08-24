@@ -251,7 +251,7 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
   }
 
   return (
-    <PageShell title="Envoyer un fichier" loggedIn>
+    <PageShell title="Envoyer un fichier" loggedIn onHeaderAction={onUnauthorized}>
       <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
         <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
         <Button
