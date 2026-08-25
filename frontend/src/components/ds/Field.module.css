@@ -1,0 +1,51 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+/* Visible label above the field, placeholder kept distinct — a placeholder
+ * used as the label disappears as soon as the user types. */
+.label {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-normal-line);
+  color: var(--ds-color-text);
+}
+
+.description {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-normal-line);
+  color: var(--ds-color-text-muted);
+}
+
+.control {
+  height: var(--ds-size-medium);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius);
+  border: 1px solid var(--ds-color-border);
+  background-color: var(--ds-color-surface);
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-small-line);
+  color: var(--ds-color-text);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.control::placeholder {
+  color: var(--ds-color-text-placeholder);
+}
+
+.control:focus-visible {
+  outline: 2px solid var(--ds-color-text);
+  outline-offset: 1px;
+}
+
+.error {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-small-size);
+  line-height: var(--ds-text-small-line);
+  color: var(--ds-callout-error-fg);
+}

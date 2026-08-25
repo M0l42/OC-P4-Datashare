@@ -104,16 +104,52 @@ describe('Files uploads (e2e)', () => {
       .send({ parts: [{ partNumber: 1, etag: putResult.ETag }] })
       .expect(200);
 
-    expect(complete.body).toEqual({
-      id: body.fileId,
-      state: 'ready',
-      downloadToken: file.downloadToken,
-    });
+    // `uploaded`, pas `ready` : c'est le worker (SOC-05) qui promeut après
+    // analyse. Et aucun jeton n'est renvoyé ici — un fichier que le scan
+    // refusera ensuite ne doit jamais avoir eu de lien partageable.
+    expect(complete.body).toEqual({ id: body.fileId, state: 'uploaded' });
+    expect(complete.body).not.toHaveProperty('downloadToken');
 
     const updated = await prisma.file.findUniqueOrThrow({
       where: { id: body.fileId },
     });
-    expect(updated.state).toBe('ready');
+    // Le worker tourne dans un conteneur séparé et peut déjà avoir promu la
+    // ligne : les deux états sont acceptables ici, `ready` jamais avant.
+    expect(['uploaded', 'scanning', 'ready']).toContain(updated.state);
+  });
+
+  it('exposes the download token through the status route only once ready', async () => {
+    const initiate = await request(app.getHttpServer())
+      .post('/files/uploads')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        originalName: 'e2e-status.txt',
+        mimeType: 'text/plain',
+        sizeBytes: 13,
+      })
+      .expect(201);
+    const body = initiate.body as { fileId: string };
+    createdFileIds.push(body.fileId);
+
+    // Encore `pending` : pas de jeton.
+    const pending = await request(app.getHttpServer())
+      .get(`/files/uploads/${body.fileId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(pending.body).not.toHaveProperty('downloadToken');
+
+    await prisma.file.update({
+      where: { id: body.fileId },
+      data: { state: 'ready' },
+    });
+
+    const ready = await request(app.getHttpServer())
+      .get(`/files/uploads/${body.fileId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(
+      (ready.body as { downloadToken?: string }).downloadToken,
+    ).toHaveLength(22);
   });
 
   it('rejects completion when the real size does not match the declared size', async () => {

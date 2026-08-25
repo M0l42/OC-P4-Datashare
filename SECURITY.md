@@ -24,8 +24,8 @@ appel à `CreateMultipartUpload` :
 
 Couvre les formats exécutables Windows/Unix usuels et les formats Office à
 macros. Ce n'est **pas** un contrôle de contenu : un exécutable renommé en
-`.pdf` passe cette étape. La vérification du contenu réel (octets magiques)
-est un chantier séparé (SOC-05, à venir — voir plus bas).
+`.pdf` passe cette étape. Le contenu réel est vérifié plus tard, par le
+worker de validation (voir « Analyse post-téléversement » ci-dessous).
 
 ### Taille : deux contrôles distincts, aucun ne fait confiance au client
 
@@ -48,6 +48,57 @@ Deux vérifications indépendantes s'y font (`FilesService.completeUpload`) :
 Dans les deux cas, l'objet est supprimé du stockage et la ligne `File`
 n'est **jamais** promue au-delà de `rejected` — impossible d'obtenir un lien
 de téléchargement pour un objet qui a échoué ce contrôle.
+
+## Analyse post-téléversement : la barrière du produit
+
+Un `CompleteMultipartUpload` réussi ne rend **pas** le fichier téléchargeable.
+La ligne passe à `uploaded`, un job est mis en file (BullMQ/Redis), et c'est
+un **worker séparé** (conteneur `worker`, sans serveur HTTP) qui décide
+ensuite de `ready` ou `rejected`. Un lien ne résout que dans `ready` : un
+fichier refusé n'a donc jamais eu de lien partageable, même brièvement.
+C'est aussi pourquoi `POST /files/uploads/:id/complete` ne renvoie **aucun
+jeton** — l'expéditeur le récupère via `GET /files/uploads/:id/status`, qui
+ne l'inclut que dans l'état `ready`.
+
+Le worker **pose** `scanning` au démarrage du job au lieu de simplement lire
+l'état. C'est ce qui rend un worker mort détectable : une ligne bloquée en
+`scanning` au-delà de 15 minutes est remise en file par un balayage horaire.
+Sans ça, un worker tué en plein scan laisserait un lien qui ne résoudrait
+jamais, sans que personne ne sache pourquoi.
+
+### Deux étapes, et la distinction est une décision de conception
+
+1. **Octets magiques — lecture par plage.** `GetObject` avec
+   `Range: bytes=0-63` : une signature de fichier tient dans les premiers
+   octets. Si l'extension déclarée est connue de la table de signatures et
+   que les octets la contredisent (un `.pdf` dont les octets disent `MZ`),
+   le fichier est refusé **sans que l'objet soit jamais lu entièrement**.
+   Une extension inconnue de la table n'est jamais refusée sur ce critère :
+   on ne prétend pas savoir vérifier ce qu'on ne sait pas vérifier.
+2. **ClamAV — objet complet, sous le plafond de 50 Mo uniquement.** La
+   lecture complète n'a lieu que dans la branche qui appelle réellement le
+   scanner.
+
+**Pourquoi cet ordre compte.** Une lecture complète inconditionnelle
+extrairait un gigaoctet de MinIO même pour les fichiers que le scanner
+ignore ensuite, ce qui annulerait exactement l'économie que le plafond
+existe pour produire. Coût réel de validation d'un fichier de 1 Go : 64
+octets, pas 1 Go.
+
+Dans les deux cas de refus, l'objet est supprimé du stockage et
+`storage_key` est mis à `NULL` : la ligne subsiste pour l'historique, mais
+plus rien n'est récupérable.
+
+### Limite assumée : le plafond de 50 Mo
+
+Au-delà de 50 Mo, **le fichier passe en `ready` sans analyse antivirale**, et
+c'est écrit ici plutôt que caché. La limite de flux par défaut de `clamd` est
+très inférieure à 1 Go, et scanner un fichier de taille pleine obligerait le
+worker à extraire l'objet entier de MinIO — ce qui casserait la propriété
+« l'API ne touche jamais les octets » à la frontière du worker. Le contrôle
+d'octets magiques, lui, s'applique à **tous** les fichiers quelle que soit
+leur taille. Risque résiduel : un fichier de plus de 50 Mo dont l'extension
+est cohérente avec ses octets n'est pas analysé.
 
 ## Authentification
 
@@ -121,7 +172,5 @@ l'URL fuit (log, historique partagé, etc.).
 
 | Contrôle | Chantier | Note |
 |---|---|---|
-| Octets magiques (contenu réel vs extension déclarée) | SOC-05 | Lecture par plage (`Range: bytes=0-63`), pas de lecture complète |
-| Antivirus ClamAV | SOC-05 | Plafonné à 50 Mo, limite assumée et documentée à ce moment-là |
-| Limitation de débit (Redis) sur `/auth/login` et `GET/POST /d/:token` | — | Non câblée ; `GET /d/:token` est interrogé toutes les 2 s pendant l'attente de scan une fois SOC-05 livré, ce qui en fera une vraie surface de sondage sans throttle |
+| Limitation de débit (Redis) sur `/auth/login` et `GET/POST /d/:token` | — | Non câblée, et c'est désormais la lacune la plus exposée : SOC-05 étant livré, `GET /d/:token` **est** réellement interrogé toutes les 2 s pendant l'attente de scan, donc c'est à la fois une surface de sondage de jetons et la cible du test de charge. Le compteur de tentatives affiché sur la page destinataire (`RecipientPage`) est **purement côté client** : aucun verrou serveur, un attaquant qui recharge la page repart de zéro |
 | Mot de passe optionnel sur le lien de téléchargement | US09 | Le contrôle existe déjà côté téléchargement (`DownloadService.verifyPasswordAndGetUrl`) ; US09 couvre la définition du mot de passe côté envoi |

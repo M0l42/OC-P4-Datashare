@@ -34,7 +34,8 @@
 //     index, chacune fait un parcours complet de table.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -104,12 +105,18 @@ model File {
   tags String[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  // Ajouté par SOC-05, absent du MCD d'origine. Le balayage des workers morts
+  // a besoin de « depuis combien de temps cette ligne est-elle en scanning »,
+  // ce que createdAt ne peut pas dire : un fichier peut être créé longtemps
+  // avant d'être scanné.
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
 
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   ownerId String @db.Uuid @map("owner_id")
 
   @@index([state, expiresAt], map: "files_state_expires_at_idx") // purge à expiration + purge des fantômes
   @@index([state, createdAt], map: "files_state_created_at_idx") // reaper des uploads abandonnés (48 h)
+  @@index([state, updatedAt], map: "files_state_updated_at_idx") // remise en file des scans bloqués (15 min)
   @@index([ownerId], map: "files_owner_id_idx") // liste « Mon espace »
   @@map("files")
 }

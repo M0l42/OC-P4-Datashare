@@ -1,9 +1,15 @@
 import { useRef, useState } from 'react'
-import { apiDelete, apiPost, ApiError } from '../lib/api'
+import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
+import { formatFileSize } from '../lib/format'
+import { Button, Callout, FileInfo, PageShell } from './ds'
+import { CopyIcon, UploadIcon } from './icons'
+import styles from './Uploader.module.css'
 
-const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // 1 Gio, refus immédiat côté client
+const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // rejected client-side before any request
 const MAX_PART_ATTEMPTS = 3
-const RETRY_DELAYS_MS = [500, 1500, 3000] // attente croissante entre tentatives
+const RETRY_DELAYS_MS = [500, 1500, 3000] // growing backoff between attempts
+const SCAN_POLL_INTERVAL_MS = 1500
+const SCAN_POLL_MAX_ATTEMPTS = 120 // ~3 minutes before giving up
 
 interface InitiateResponse {
   fileId: string
@@ -14,27 +20,51 @@ interface InitiateResponse {
 interface CompleteResponse {
   id: string
   state: string
-  downloadToken: string
+}
+
+interface StatusResponse {
+  id: string
+  state: string
+  originalName: string
+  downloadToken?: string
 }
 
 type Status =
   | { kind: 'idle' }
   | { kind: 'uploading'; fileId: string; bytesSent: number; totalBytes: number }
+  | { kind: 'scanning' }
   | { kind: 'done'; downloadToken: string }
   | { kind: 'cancelled' }
   | { kind: 'error'; message: string }
 
 interface UploaderProps {
   token: string
+  onUnauthorized: () => void
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// PUT une partie via XMLHttpRequest plutôt que fetch : c'est le seul moyen
-// d'obtenir une progression en octets pendant l'envoi (xhr.upload.onprogress).
-// fetch n'expose pas cet évènement, seulement la réponse complète.
+// /complete never carries a link (diagramme 4, étape 16 : « pas encore de
+// lien ») — the worker still has to run ClamAV + magic-byte checks. Poll
+// /status until it settles on `ready` (link available) or `rejected`.
+async function pollUntilScanned(fileId: string, token: string): Promise<string> {
+  for (let attempt = 0; attempt < SCAN_POLL_MAX_ATTEMPTS; attempt++) {
+    const status = await apiGet<StatusResponse>(`/files/uploads/${fileId}/status`, token)
+    if (status.state === 'ready' && status.downloadToken) {
+      return status.downloadToken
+    }
+    if (status.state === 'rejected') {
+      throw new Error('Fichier refusé par l’analyse de sécurité.')
+    }
+    await sleep(SCAN_POLL_INTERVAL_MS)
+  }
+  throw new Error('Analyse du fichier trop longue, réessaie plus tard.')
+}
+
+// XMLHttpRequest rather than fetch: xhr.upload.onprogress is the only way to
+// get byte-level progress during the send. fetch only resolves at the end.
 function putPart(
   url: string,
   blob: Blob,
@@ -76,17 +106,18 @@ function putPart(
   })
 }
 
-// US01-B/US01-C : découpe le fichier et pousse les parties directement vers le
-// stockage (les octets ne traversent ni l'API ni nginx). Reprise après
-// rechargement de page (US01-R) reste hors périmètre : ce composant ne gère
-// que la résilience PENDANT un envoi en cours (retry par partie, annulation).
-export function Uploader({ token }: UploaderProps) {
+// Slices the file and pushes parts straight to storage — the bytes never
+// cross the API or nginx. Handles resilience during a send (per-part retry,
+// cancel); surviving a page reload is a separate job.
+export function Uploader({ token, onUnauthorized }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  // Kept alongside `status` so the file row (icon, name, size) stays visible
+  // through uploading → scanning → done, not just while progress is known.
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
-  // "demandée" pilote l'arrêt de la boucle ; "gérée" empêche un double DELETE
-  // si l'utilisateur clique Annuler plusieurs fois ou si un abort XHR et le
-  // clic se chevauchent.
+  // "requested" stops the loop; "handled" prevents a second DELETE if cancel
+  // is clicked twice, or if an XHR abort and the click overlap.
   const cancelRequestedRef = useRef(false)
   const cancelHandledRef = useRef(false)
 
@@ -101,6 +132,7 @@ export function Uploader({ token }: UploaderProps) {
 
     cancelRequestedRef.current = false
     cancelHandledRef.current = false
+    setSelectedFile(file)
 
     try {
       const initiate = await apiPost<InitiateResponse>(
@@ -143,8 +175,7 @@ export function Uploader({ token }: UploaderProps) {
             break
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
-              // Annulation en cours : le nettoyage (DELETE + statut) est géré
-              // par handleCancelClick, pas ici.
+              // Cancelling: handleCancelClick owns the cleanup, not this.
               return
             }
             lastError = err
@@ -170,13 +201,19 @@ export function Uploader({ token }: UploaderProps) {
         return
       }
 
-      const complete = await apiPost<CompleteResponse>(
+      await apiPost<CompleteResponse>(
         `/files/uploads/${initiate.fileId}/complete`,
         { parts: completedParts },
         token,
       )
-      setStatus({ kind: 'done', downloadToken: complete.downloadToken })
+      setStatus({ kind: 'scanning' })
+      const downloadToken = await pollUntilScanned(initiate.fileId, token)
+      setStatus({ kind: 'done', downloadToken })
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onUnauthorized()
+        return
+      }
       if (!cancelRequestedRef.current) {
         setStatus({
           kind: 'error',
@@ -193,16 +230,15 @@ export function Uploader({ token }: UploaderProps) {
     cancelHandledRef.current = true
     cancelRequestedRef.current = true
     const fileId = status.fileId
-    // Stoppe le transfert en cours immédiatement ; s'il n'y a aucune requête
-    // en vol (entre deux parties, ou pendant l'attente d'une nouvelle
-    // tentative), c'est un no-op et le DELETE ci-dessous suffit.
+    // Stops the in-flight transfer at once. Between parts, or during a retry
+    // backoff, there is nothing to abort and the DELETE below is enough.
     xhrRef.current?.abort()
     void (async () => {
       try {
         await apiDelete(`/files/uploads/${fileId}`, token)
       } catch {
-        // Best effort : si le DELETE échoue, la ligne reste `pending` et sera
-        // récupérée par le reaper (US10), pas de partie orpheline durable.
+        // Best effort: if this fails the row stays pending and the scheduled
+        // reaper collects it, so nothing is orphaned for long.
       }
       setStatus({ kind: 'cancelled' })
     })()
@@ -219,42 +255,101 @@ export function Uploader({ token }: UploaderProps) {
     if (file) void handleFile(file)
   }
 
-  return (
-    <div
-      onDrop={onDrop}
-      onDragOver={(e) => e.preventDefault()}
-      style={{ border: '2px dashed #999', padding: '2rem', textAlign: 'center' }}
-    >
-      <p>Glisser-déposer un fichier ici, ou</p>
-      <button type="button" disabled={isUploading} onClick={() => inputRef.current?.click()}>
-        Choisir un fichier
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) void handleFile(file)
-          e.target.value = ''
-        }}
-      />
+  const showCard = status.kind !== 'idle'
 
-      {status.kind === 'uploading' && (
-        <div>
-          <progress value={status.bytesSent} max={status.totalBytes} style={{ width: '100%' }} />
-          <p>
-            {Math.round((status.bytesSent / status.totalBytes) * 100)} % ({status.bytesSent} / {status.totalBytes}{' '}
-            octets)
-          </p>
-          <button type="button" onClick={handleCancelClick}>
-            Annuler
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      hidden
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        if (file) void handleFile(file)
+        e.target.value = ''
+      }}
+    />
+  )
+
+  return (
+    <PageShell title={showCard ? 'Ajouter un fichier' : undefined} card={showCard} loggedIn onHeaderAction={onUnauthorized}>
+      {status.kind === 'idle' && (
+        // Matches the idle mockup exactly: no card, no dashed dropzone — just
+        // the prompt and the round upload button on the gradient.
+        <div className={styles.idle} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+          <p className={styles.idleText}>Tu veux partager un fichier ?</p>
+          <button
+            type="button"
+            className={styles.idleButtonHalo}
+            aria-label="Choisir un fichier"
+            onClick={() => inputRef.current?.click()}
+          >
+            <span className={styles.idleButton}>
+              <UploadIcon />
+            </span>
           </button>
+          {fileInput}
         </div>
       )}
-      {status.kind === 'done' && <p>Envoyé. Jeton : {status.downloadToken}</p>}
-      {status.kind === 'cancelled' && <p>Envoi annulé.</p>}
-      {status.kind === 'error' && <p role="alert">{status.message}</p>}
-    </div>
+
+      {(status.kind === 'cancelled' || status.kind === 'error') && (
+        <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+          <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
+          <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+            Choisir un fichier
+          </Button>
+          {fileInput}
+        </div>
+      )}
+
+      {status.kind === 'uploading' && (
+        <div className={styles.progressBlock}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <progress
+            className={styles.progress}
+            value={status.bytesSent}
+            max={status.totalBytes}
+          />
+          {/* aria-live so the percentage is announced as it moves, not just
+              painted. */}
+          <p className={styles.progressLabel} aria-live="polite">
+            {Math.round((status.bytesSent / status.totalBytes) * 100)} % —{' '}
+            {formatFileSize(status.bytesSent)} sur {formatFileSize(status.totalBytes)}
+          </p>
+          <Button variant="tertiary" onClick={handleCancelClick}>
+            Annuler
+          </Button>
+        </div>
+      )}
+
+      {status.kind === 'scanning' && (
+        <div className={styles.done}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <Callout variant="info">Analyse de sécurité en cours…</Callout>
+        </div>
+      )}
+
+      {status.kind === 'done' && (
+        <div className={styles.done}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <p className={styles.doneText}>Félicitations, ton fichier est prêt à être partagé !</p>
+          <a className={styles.token} href={downloadLink(status.downloadToken)}>
+            {downloadLink(status.downloadToken)}
+          </a>
+          <Button
+            className={styles.doneAction}
+            icon={<CopyIcon />}
+            onClick={() => navigator.clipboard.writeText(downloadLink(status.downloadToken))}
+          >
+            Copier le lien
+          </Button>
+        </div>
+      )}
+      {status.kind === 'cancelled' && <Callout variant="alert">Envoi annulé.</Callout>}
+      {status.kind === 'error' && <Callout variant="error">{status.message}</Callout>}
+    </PageShell>
   )
+}
+
+function downloadLink(token: string): string {
+  return `${window.location.origin}/d/${token}`
 }

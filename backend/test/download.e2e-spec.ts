@@ -18,6 +18,10 @@ import { PrismaService } from './../src/prisma/prisma.service';
 // planifiée de US10 n'existe pas) : ces lignes sont donc posées directement
 // via Prisma, comme le ferait le worker ou le job de purge une fois livrés.
 describe('Download (e2e)', () => {
+  // Ces tests attendent le worker de validation (conteneur séparé, analyse
+  // ClamAV réelle) : le délai par défaut de 5 s de Jest est trop court.
+  jest.setTimeout(30_000);
+
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let internalS3: S3Client;
@@ -67,10 +71,30 @@ describe('Download (e2e)', () => {
       .send({ parts: [{ partNumber: 1, etag: putResult.ETag }] })
       .expect(200);
 
-    const ready = await prisma.file.findUniqueOrThrow({
-      where: { id: body.fileId },
-    });
+    // `complete` laisse la ligne en `uploaded` : c'est le worker (SOC-05,
+    // conteneur séparé) qui promeut en `ready` après analyse. On attend qu'il
+    // ait fini plutôt que de forcer l'état — forcer créerait une course avec
+    // le worker, qui repasserait la ligne en `scanning` juste après.
+    const ready = await waitForReady(body.fileId);
     return { fileId: ready.id, downloadToken: ready.downloadToken };
+  }
+
+  async function waitForReady(fileId: string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const file = await prisma.file.findUniqueOrThrow({
+        where: { id: fileId },
+      });
+      if (file.state === FileState.ready) {
+        return file;
+      }
+      if (file.state === FileState.rejected) {
+        throw new Error(`File ${fileId} was rejected by the scan worker`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(
+      `File ${fileId} never reached ready (is the worker container running?)`,
+    );
   }
 
   beforeAll(async () => {

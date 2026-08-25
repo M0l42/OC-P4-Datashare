@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { apiPost, ApiError } from '../lib/api'
+import { Button, Callout, Input, PageShell } from './ds'
+import styles from './LoginForm.module.css'
 
 interface LoginResponse {
   token: string
@@ -9,10 +11,8 @@ interface LoginFormProps {
   onLogin: (token: string) => void
 }
 
-// Formulaire minimal, non stylé selon les maquettes : UI-03 ("Reste de l'app
-// React") le remplacera par la vraie page de connexion. Sert uniquement à
-// obtenir un JWT pour tester l'uploader (US01-B) avant que le routage et les
-// formulaires d'authentification définitifs n'existent.
+// Stopgap sign-in so the uploader has a token to work with. The real routed
+// auth screens land with the rest of the app.
 export function LoginForm({ onLogin }: LoginFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -34,36 +34,28 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Connexion</h1>
-      <p>
-        <label>
-          Email
-          <br />
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
-      </p>
-      <p>
-        <label>
-          Mot de passe
-          <br />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-      </p>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={submitting}>
-        {submitting ? 'Connexion…' : 'Se connecter'}
-      </button>
-    </form>
+    <PageShell title="Connexion">
+      <form onSubmit={handleSubmit} className={styles.form}>
+        {error && <Callout variant="error">{error}</Callout>}
+        <Input
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <Input
+          label="Mot de passe"
+          type="password"
+          placeholder="Saisissez le mot de passe…"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <Button type="submit" variant="primary" fullWidth disabled={submitting}>
+          {submitting ? 'Connexion…' : 'Se connecter'}
+        </Button>
+      </form>
+    </PageShell>
   )
 }

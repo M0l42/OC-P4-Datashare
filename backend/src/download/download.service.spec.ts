@@ -90,6 +90,22 @@ describe('DownloadService', () => {
       expect(result.metadata.senderName).toBe('Nathan');
     });
 
+    it('treats uploaded as still-being-checked, not as an invalid link', async () => {
+      // Régression : depuis SOC-05 il existe une vraie fenêtre entre
+      // `complete` et la prise en charge du job par le worker. Renvoyer 404
+      // ici afficherait « ce lien n'est pas valide » — définitivement, la
+      // page n'interrogeant plus après un 404 — pour un fichier sain.
+      mockPrismaService.file.findUnique.mockResolvedValue({
+        ...baseFile,
+        state: FileState.uploaded,
+      });
+
+      const result = await service.getMetadata(token);
+
+      expect(result.status).toBe('scanning');
+      expect(result.downloadUrl).toBeUndefined();
+    });
+
     it('returns a scanning status without a download URL', async () => {
       mockPrismaService.file.findUnique.mockResolvedValue({
         ...baseFile,

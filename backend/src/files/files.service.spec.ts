@@ -10,6 +10,7 @@ import { FileState } from '@prisma/client';
 import { FilesService } from './files.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { ScanQueueService } from '../scan/scan-queue.service';
 import { PART_SIZE_BYTES } from './upload.constants';
 
 describe('FilesService', () => {
@@ -31,6 +32,7 @@ describe('FilesService', () => {
     abortMultipartUpload: jest.Mock;
     deleteObject: jest.Mock;
   };
+  let mockScanQueueService: { enqueueValidation: jest.Mock };
 
   const ownerId = 'owner-1';
   const fileId = 'file-1';
@@ -74,12 +76,16 @@ describe('FilesService', () => {
       abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined),
     };
+    mockScanQueueService = {
+      enqueueValidation: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FilesService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: StorageService, useValue: mockStorageService },
+        { provide: ScanQueueService, useValue: mockScanQueueService },
       ],
     }).compile();
 
@@ -193,25 +199,38 @@ describe('FilesService', () => {
   describe('completeUpload', () => {
     const dto = { parts: [{ partNumber: 1, etag: 'etag-1' }] };
 
-    it('transitions to ready and returns the download token when within the size cap', async () => {
+    it('transitions to uploaded, enqueues validation, and withholds the token', async () => {
       mockPrismaService.file.findFirst.mockResolvedValue(pendingFile);
       mockStorageService.headObject.mockResolvedValue({ contentLength: 13 });
       mockPrismaService.file.update.mockResolvedValue({
         ...pendingFile,
-        state: FileState.ready,
+        state: FileState.uploaded,
       });
 
       const result = await service.completeUpload(ownerId, fileId, dto);
 
       expect(mockStorageService.completeMultipartUpload).toHaveBeenCalled();
       expect(mockPrismaService.file.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { state: FileState.ready } }),
+        expect.objectContaining({ data: { state: FileState.uploaded } }),
       );
-      expect(result).toEqual({
-        id: fileId,
-        state: FileState.ready,
-        downloadToken: pendingFile.downloadToken,
-      });
+      expect(mockScanQueueService.enqueueValidation).toHaveBeenCalledWith(
+        fileId,
+      );
+      // Aucun jeton avant l'état `ready` : un fichier que le scan refusera
+      // ensuite ne doit jamais avoir eu de lien partageable.
+      expect(result).toEqual({ id: fileId, state: FileState.uploaded });
+      expect(result).not.toHaveProperty('downloadToken');
+    });
+
+    it('never enqueues validation when the size checks reject the object', async () => {
+      mockPrismaService.file.findFirst.mockResolvedValue(pendingFile);
+      mockStorageService.headObject.mockResolvedValue({ contentLength: 999 });
+
+      await expect(
+        service.completeUpload(ownerId, fileId, dto),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockScanQueueService.enqueueValidation).not.toHaveBeenCalled();
     });
 
     it('rejects and deletes the object when the real size exceeds 1 GiB', async () => {

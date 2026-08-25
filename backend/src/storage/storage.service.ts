@@ -132,6 +132,29 @@ export class StorageService {
     );
   }
 
+  // Lecture par plage : une signature de fichier tient dans les premiers
+  // octets, donc l'objet ne sort PAS du stockage pour ce contrôle. Valider un
+  // fichier de 1 Go coûte 64 octets d'egress, pas 1 Go.
+  async getObjectRange(key: string, lastByte: number): Promise<Buffer> {
+    const result = await this.serverClient.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Range: `bytes=0-${lastByte}`,
+      }),
+    );
+    return Buffer.from(await result.Body!.transformToByteArray());
+  }
+
+  // Lecture complète — réservée aux branches qui appellent réellement ClamAV,
+  // donc jamais au-delà du plafond de 50 Mo. Voir getObjectRange.
+  async getObjectFull(key: string): Promise<Buffer> {
+    const result = await this.serverClient.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    return Buffer.from(await result.Body!.transformToByteArray());
+  }
+
   async headObject(key: string): Promise<{ contentLength: number }> {
     const result = await this.serverClient.send(
       new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
