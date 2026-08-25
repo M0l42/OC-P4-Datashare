@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
 import { formatFileSize } from '../lib/format'
-import { Button, Callout, PageShell } from './ds'
+import { Button, Callout, FileInfo, PageShell } from './ds'
+import { CopyIcon, UploadIcon } from './icons'
 import styles from './Uploader.module.css'
 
 const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // rejected client-side before any request
@@ -110,6 +111,9 @@ function putPart(
 // cancel); surviving a page reload is a separate job.
 export function Uploader({ token, onUnauthorized }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  // Kept alongside `status` so the file row (icon, name, size) stays visible
+  // through uploading → scanning → done, not just while progress is known.
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
   // "requested" stops the loop; "handled" prevents a second DELETE if cancel
@@ -128,6 +132,7 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
 
     cancelRequestedRef.current = false
     cancelHandledRef.current = false
+    setSelectedFile(file)
 
     try {
       const initiate = await apiPost<InitiateResponse>(
@@ -250,31 +255,55 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
     if (file) void handleFile(file)
   }
 
+  const showCard = status.kind !== 'idle'
+
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      hidden
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        if (file) void handleFile(file)
+        e.target.value = ''
+      }}
+    />
+  )
+
   return (
-    <PageShell title="Envoyer un fichier" loggedIn onHeaderAction={onUnauthorized}>
-      <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
-        <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
-        <Button
-          variant="secondary"
-          disabled={isUploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          Choisir un fichier
-        </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) void handleFile(file)
-            e.target.value = ''
-          }}
-        />
-      </div>
+    <PageShell title={showCard ? 'Ajouter un fichier' : undefined} card={showCard} loggedIn onHeaderAction={onUnauthorized}>
+      {status.kind === 'idle' && (
+        // Matches the idle mockup exactly: no card, no dashed dropzone — just
+        // the prompt and the round upload button on the gradient.
+        <div className={styles.idle} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+          <p className={styles.idleText}>Tu veux partager un fichier ?</p>
+          <button
+            type="button"
+            className={styles.idleButtonHalo}
+            aria-label="Choisir un fichier"
+            onClick={() => inputRef.current?.click()}
+          >
+            <span className={styles.idleButton}>
+              <UploadIcon />
+            </span>
+          </button>
+          {fileInput}
+        </div>
+      )}
+
+      {(status.kind === 'cancelled' || status.kind === 'error') && (
+        <div className={styles.dropZone} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+          <p className={styles.dropHint}>Glisse-dépose un fichier ici, ou</p>
+          <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+            Choisir un fichier
+          </Button>
+          {fileInput}
+        </div>
+      )}
 
       {status.kind === 'uploading' && (
         <div className={styles.progressBlock}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
           <progress
             className={styles.progress}
             value={status.bytesSent}
@@ -292,13 +321,28 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
         </div>
       )}
 
-      {status.kind === 'scanning' && <Callout variant="info">Analyse de sécurité en cours…</Callout>}
+      {status.kind === 'scanning' && (
+        <div className={styles.done}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <Callout variant="info">Analyse de sécurité en cours…</Callout>
+        </div>
+      )}
 
       {status.kind === 'done' && (
-        <>
-          <Callout variant="info">Envoi terminé. Ton lien est prêt à être partagé.</Callout>
-          <p className={styles.token}>{downloadLink(status.downloadToken)}</p>
-        </>
+        <div className={styles.done}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <p className={styles.doneText}>Félicitations, ton fichier est prêt à être partagé !</p>
+          <a className={styles.token} href={downloadLink(status.downloadToken)}>
+            {downloadLink(status.downloadToken)}
+          </a>
+          <Button
+            className={styles.doneAction}
+            icon={<CopyIcon />}
+            onClick={() => navigator.clipboard.writeText(downloadLink(status.downloadToken))}
+          >
+            Copier le lien
+          </Button>
+        </div>
       )}
       {status.kind === 'cancelled' && <Callout variant="alert">Envoi annulé.</Callout>}
       {status.kind === 'error' && <Callout variant="error">{status.message}</Callout>}

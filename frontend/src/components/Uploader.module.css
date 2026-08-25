@@ -1,3 +1,61 @@
+.idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-6);
+  padding: var(--ds-space-8);
+  text-align: center;
+}
+
+.idleText {
+  margin: 0;
+  font-family: var(--ds-font-body);
+  font-size: 20px;
+  line-height: var(--ds-text-normal-line);
+  color: var(--ds-color-text);
+}
+
+.idleButtonHalo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 112px;
+  height: 112px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: rgba(44, 44, 44, 0.12);
+  cursor: pointer;
+}
+
+.idleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background-color: var(--ds-btn-dark-bg);
+  color: var(--ds-btn-dark-fg);
+}
+
+.done {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+}
+
+.doneText {
+  margin: 0;
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-body-line);
+}
+
+.doneAction {
+  align-self: center;
+}
+
 .dropZone {
   display: flex;
   flex-direction: column;
@@ -48,11 +106,15 @@
 }
 
 .token {
+  display: block;
+  width: 100%;
   margin: 0;
   padding: var(--ds-space-3);
-  border: 1px solid var(--ds-color-border);
   border-radius: var(--ds-radius);
+  background-color: var(--ds-btn-disabled-bg);
   font-family: var(--ds-font-ui);
   font-size: var(--ds-text-small-size);
+  color: var(--ds-btn-secondary-fg);
   word-break: break-all;
+  box-sizing: border-box;
 }

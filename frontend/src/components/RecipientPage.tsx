@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Callout, Input, PageShell } from './ds'
+import { Button, Callout, FileInfo, Input, PageShell } from './ds'
+import { DownloadIcon } from './icons'
 import styles from './RecipientPage.module.css'
 import { fetchDownloadMetadata, verifyDownloadPassword, type DownloadMetadata } from '../lib/download'
 import { expiryTone } from '../lib/expiryTone'
@@ -146,9 +147,7 @@ export function RecipientPage({ token }: RecipientPageProps) {
 
   return (
     <PageShell title="Télécharger un fichier">
-      <p>
-        {meta.originalName} — {formatFileSize(meta.sizeBytes)}
-      </p>
+      <FileInfo name={meta.originalName} size={formatFileSize(meta.sizeBytes)} />
       {meta.senderName && <p>Envoyé par {meta.senderName}</p>}
 
       {phase.kind === 'scanning' && (
@@ -156,7 +155,7 @@ export function RecipientPage({ token }: RecipientPageProps) {
           <Callout variant="info">
             Ce fichier est en cours de vérification. Réessayez dans quelques instants.
           </Callout>
-          <Button variant="primary" fullWidth disabled>
+          <Button variant="primary" fullWidth icon={<DownloadIcon />} disabled>
             Télécharger
           </Button>
         </>
@@ -165,7 +164,12 @@ export function RecipientPage({ token }: RecipientPageProps) {
       {phase.kind === 'ready' && (
         <>
           <Callout variant={expiryTone(meta.expiresAt)}>{expiryMessage(meta.expiresAt)}</Callout>
-          <Button variant="primary" fullWidth onClick={() => (window.location.href = phase.downloadUrl)}>
+          <Button
+            variant="primary"
+            fullWidth
+            icon={<DownloadIcon />}
+            onClick={() => (window.location.href = phase.downloadUrl)}
+          >
             Télécharger
           </Button>
         </>
@@ -191,6 +195,7 @@ export function RecipientPage({ token }: RecipientPageProps) {
             type="submit"
             variant="primary"
             fullWidth
+            icon={<DownloadIcon />}
             disabled={submitting || password.length === 0}
           >
             Télécharger

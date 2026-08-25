@@ -1,0 +1,33 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-body-line);
+  color: var(--ds-color-text);
+  word-break: break-all;
+}
+
+.size {
+  margin: 0;
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-small-size);
+  line-height: var(--ds-text-small-line);
+  color: var(--ds-color-text-muted);
+}
