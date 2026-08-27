@@ -387,7 +387,14 @@ Choisie **contre** US05, après reconsidération, pour le meilleur rapport entre
 
 **Frontière avec US05, explicitée parce qu'elle traverse un composant React** : l'IA possède `FileDeletionService`, `DELETE /files/:id` et le composant `<ConfirmDeleteDialog>` (US06 exige une confirmation côté front). Le tableau d'historique de US05, écrit à la main, rend un emplacement que le composant de l'IA remplit. Deux commits marquent la frontière : `feat(ai): …` puis `fix: …` après revue.
 
-> **À COMPLÉTER** — après implémentation : tâches précises confiées, corrections apportées (le filtrage par propriétaire était-il présent ? l'ordre de suppression était-il correct ? les envois en vol étaient-ils avortés ? l'endpoint était-il idempotent ?), apports et limites constatés.
+**Implémenté le 2026-08-25.** Trace complète — décisions, questions posées à Nathan et ses réponses, ce qui a été construit, QA effectuée, limites constatées — dans `docs/journal-ia.md`. Résumé des quatre questions que la story elle-même posait :
+
+- **Filtrage par propriétaire** : présent (`findFirst({ id, ownerId })` avant tout accès stockage), vérifié en direct (un second utilisateur reçoit 404 sur le fichier du premier).
+- **Ordre de suppression** : stockage d'abord (objet ou avortement du multipart), ligne PostgreSQL ensuite — jamais l'inverse, pour ne pas perdre la trace d'un objet orphelin si l'étape stockage échoue.
+- **Envois en vol avortés** : oui, `AbortMultipartUpload` sur `pending`, vérifié en direct sur un upload réellement initié.
+- **Endpoint idempotent** : oui — double appel séquentiel testé en direct (204 puis 404, jamais 500) ; la course concurrente est couverte par des tests unitaires (Prisma `P2025`, S3 `NoSuchUpload`).
+
+Deux décisions ont été posées à Nathan plutôt que tranchées seules : autoriser la suppression pendant `scanning` (compromis assumé, appuyé sur le `attempts: 3` déjà configuré dans `scan-queue.service.ts` et le garde `skipped` déjà présent dans `validation.service.ts`, sans modifier ni l'un ni l'autre) et autoriser la suppression anticipée des lignes fantômes (`expired`/`rejected`) via le même endpoint. Détail complet dans le journal.
 
 ### IA en conception
 

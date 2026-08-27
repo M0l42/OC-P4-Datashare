@@ -247,7 +247,7 @@ describe('FilesService', () => {
         pendingFile.storageKey,
       );
       expect(mockPrismaService.file.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { state: FileState.rejected } }),
+        expect.objectContaining({ data: { state: FileState.rejected, storageKey: null } }),
       );
     });
 
@@ -263,7 +263,7 @@ describe('FilesService', () => {
         pendingFile.storageKey,
       );
       expect(mockPrismaService.file.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { state: FileState.rejected } }),
+        expect.objectContaining({ data: { state: FileState.rejected, storageKey: null } }),
       );
     });
 

@@ -166,7 +166,7 @@ export class FilesService {
       await this.storage.deleteObject(file.storageKey!);
       await this.prisma.file.update({
         where: { id: file.id },
-        data: { state: FileState.rejected },
+        data: { state: FileState.rejected, storageKey: null },
       });
       throw new PayloadTooLargeException(
         'Uploaded object exceeds the 1 GiB limit',
@@ -176,7 +176,7 @@ export class FilesService {
       await this.storage.deleteObject(file.storageKey!);
       await this.prisma.file.update({
         where: { id: file.id },
-        data: { state: FileState.rejected },
+        data: { state: FileState.rejected, storageKey: null },
       });
       throw new BadRequestException(
         `Uploaded object size (${contentLength}) does not match declared size (${file.sizeBytes})`,

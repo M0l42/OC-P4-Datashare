@@ -1,0 +1,230 @@
+### Variables
+@baseUrl = http://localhost:8080/api
+@ownerEmail = us06-owner@example.com
+@ownerPassword = password123
+@otherEmail = us06-other@example.com
+@otherPassword = password123
+
+### ============================================================
+### US06 — Suppression de fichier (DELETE /files/:id)
+### ============================================================
+
+### 0a. Créer le compte propriétaire (409 si déjà existant, sans conséquence)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{ownerEmail}}",
+  "password": "{{ownerPassword}}",
+  "displayName": "US06 Owner"
+}
+
+### 0b. Créer un second compte, pour vérifier le filtrage par propriétaire
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{otherEmail}}",
+  "password": "{{otherPassword}}",
+  "displayName": "US06 Other"
+}
+
+### 1a. Connexion propriétaire -> récupérer le JWT
+# @name loginOwner
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{ownerEmail}}",
+  "password": "{{ownerPassword}}"
+}
+
+###
+@ownerToken = {{loginOwner.response.body.token}}
+
+### 1b. Connexion second utilisateur -> récupérer le JWT
+# @name loginOther
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{otherEmail}}",
+  "password": "{{otherPassword}}"
+}
+
+###
+@otherToken = {{loginOther.response.body.token}}
+
+### 2. Démarrer un téléversement (crée un fichier en état `pending`)
+# @name initiateUpload
+POST {{baseUrl}}/files/uploads
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "originalName": "us06-test.txt",
+  "mimeType": "text/plain",
+  "sizeBytes": 12,
+  "expiresInDays": 1
+}
+
+###
+@fileId = {{initiateUpload.response.body.fileId}}
+
+### 3a. DELETE sur un fichier encore `pending` (multipart en vol)
+### -> doit avorter le multipart côté S3/MinIO et supprimer la ligne (204)
+DELETE {{baseUrl}}/files/{{fileId}}
+Authorization: Bearer {{ownerToken}}
+
+### 3b. Rejouer le même DELETE (idempotence) -> 404, jamais 500
+DELETE {{baseUrl}}/files/{{fileId}}
+Authorization: Bearer {{ownerToken}}
+
+### 4. Recréer un fichier pending pour le scénario "mauvais propriétaire"
+# @name initiateUpload2
+POST {{baseUrl}}/files/uploads
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "originalName": "us06-test-2.txt",
+  "mimeType": "text/plain",
+  "sizeBytes": 12,
+  "expiresInDays": 1
+}
+
+###
+@fileId2 = {{initiateUpload2.response.body.fileId}}
+
+### 4a. Le second utilisateur tente de supprimer le fichier du premier -> 404
+DELETE {{baseUrl}}/files/{{fileId2}}
+Authorization: Bearer {{otherToken}}
+
+### 4b. Le propriétaire, lui, peut le supprimer -> 204
+DELETE {{baseUrl}}/files/{{fileId2}}
+Authorization: Bearer {{ownerToken}}
+
+### 5. DELETE sans jeton -> 401
+DELETE {{baseUrl}}/files/{{fileId2}}
+
+### 6. DELETE sur un id inexistant -> 404
+DELETE {{baseUrl}}/files/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{ownerToken}}
+
+### ------------------------------------------------------------
+### Scénario "ready" complet (objet réellement présent en stockage)
+### Utile pour vérifier à la main dans MinIO que l'objet disparaît.
+### Nécessite de suivre le flux normal : initier -> uploader les parties
+### auprès des URLs pré-signées renvoyées ci-dessous -> compléter -> supprimer.
+### ------------------------------------------------------------
+
+### 7. Initier un envoi complet
+# @name initiateUploadReady
+POST {{baseUrl}}/files/uploads
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "originalName": "us06-ready.txt",
+  "mimeType": "text/plain",
+  "sizeBytes": 12,
+  "expiresInDays": 1
+}
+
+###
+@fileIdReady = {{initiateUploadReady.response.body.fileId}}
+
+### 7a. Uploader la partie 1 sur l'URL pré-signée renvoyée ci-dessus
+### (copier `parts[0].url` de la réponse 7 dans l'URL ci-dessous, et
+### noter l'ETag renvoyé dans les headers de réponse pour l'étape 8)
+PUT {{initiateUploadReady.response.body.parts[0].url}}
+Content-Type: text/plain
+
+Hello US06!
+
+### 8. Compléter l'envoi (remplacer etag par celui obtenu à l'étape 7a)
+# @name completeUploadReady
+POST {{baseUrl}}/files/uploads/{{fileIdReady}}/complete
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "parts": [
+    { "partNumber": 1, "etag": "REPLACE_WITH_ETAG_FROM_STEP_7a" }
+  ]
+}
+
+### 8a. Suivre l'état jusqu'à `ready` (l'analyse antivirus est asynchrone)
+GET {{baseUrl}}/files/uploads/{{fileIdReady}}/status
+Authorization: Bearer {{ownerToken}}
+
+### 9. Supprimer le fichier `ready` -> l'objet doit disparaître de MinIO (204)
+DELETE {{baseUrl}}/files/{{fileIdReady}}
+Authorization: Bearer {{ownerToken}}
+
+### 9a. Rejouer -> 404
+DELETE {{baseUrl}}/files/{{fileIdReady}}
+Authorization: Bearer {{ownerToken}}
+
+### ------------------------------------------------------------
+### Scénario "scanning" (suppression pendant l'analyse ClamAV)
+### C'est le cas documenté dans file-deletion.service.ts : la suppression
+### est volontairement autorisée pendant `scanning`, l'objet est bien encore
+### présent en stockage à ce moment-là (deleteFileCompletely, pas
+### purgeTombstone). Fenêtre de course : `scanning` n'existe qu'entre la mise
+### en file (juste après 11, complete) et la fin du job BullMQ. Enchaîner
+### 10 -> 11 -> 12 le plus vite possible ; ré-exécuter 12a (status) plusieurs
+### fois de suite pour repérer la fenêtre si besoin avant de tirer 13.
+### ------------------------------------------------------------
+
+### 10. Initier un envoi
+# @name initiateUploadScanning
+POST {{baseUrl}}/files/uploads
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "originalName": "us06-scanning.txt",
+  "mimeType": "text/plain",
+  "sizeBytes": 12,
+  "expiresInDays": 1
+}
+
+###
+@fileIdScanning = {{initiateUploadScanning.response.body.fileId}}
+
+### 10a. Uploader la partie 1 (copier `parts[0].url` de la réponse 10 ;
+### noter l'ETag renvoyé dans les headers pour l'étape 11)
+PUT {{initiateUploadScanning.response.body.parts[0].url}}
+Content-Type: text/plain
+
+Hello US06!
+
+### 11. Compléter l'envoi (remplacer etag par celui obtenu à l'étape 10a)
+### -> état passe à `uploaded`, puis le job de scan est mis en file
+POST {{baseUrl}}/files/uploads/{{fileIdScanning}}/complete
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "parts": [
+    { "partNumber": 1, "etag": "REPLACE_WITH_ETAG_FROM_STEP_10a" }
+  ]
+}
+
+### 12a. Reguetter l'état jusqu'à voir `scanning` (ré-exécuter tant que
+### l'état est encore `uploaded` ; si `ready`/`rejected` apparaît, la fenêtre
+### est passée, relancer depuis 10)
+GET {{baseUrl}}/files/uploads/{{fileIdScanning}}/status
+Authorization: Bearer {{ownerToken}}
+
+### 13. Supprimer pendant `scanning` -> 204 attendu, objet réellement
+### effacé de MinIO malgré le job de scan en cours (voir le commentaire de
+### deleteFileCompletely : le job échoue une fois puis se résout tout seul
+### via le retry BullMQ, qui ne retrouve plus la ligne et sort en `skipped`)
+DELETE {{baseUrl}}/files/{{fileIdScanning}}
+Authorization: Bearer {{ownerToken}}
+
+### 13a. Rejouer -> 404
+DELETE {{baseUrl}}/files/{{fileIdScanning}}
+Authorization: Bearer {{ownerToken}}
