@@ -1,0 +1,356 @@
+.page {
+  min-height: 100svh;
+  display: flex;
+  font-family: var(--ds-font-body);
+  color: var(--ds-color-text);
+}
+
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--ds-gradient-page);
+  color: var(--ds-color-text-on-dark);
+  display: flex;
+  flex-direction: column;
+  padding: var(--ds-space-6);
+  box-sizing: border-box;
+}
+
+.brand {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-h1-size);
+  line-height: var(--ds-text-h1-line);
+  font-weight: 700;
+  color: #ffffff;
+  text-decoration: none;
+  margin-bottom: var(--ds-space-8);
+}
+
+.navItem {
+  display: inline-block;
+  align-self: flex-start;
+  background-color: rgba(255, 255, 255, 0.6);
+  color: var(--ds-btn-secondary-fg);
+  font-family: var(--ds-font-ui);
+  font-weight: 600;
+  border-radius: var(--ds-radius-pill);
+  padding: var(--ds-space-2) var(--ds-space-4);
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  font-size: var(--ds-text-small-size);
+  color: var(--ds-color-text-on-accent);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--ds-monespace-content-bg);
+}
+
+.headerBar {
+  height: 72px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-3);
+  padding-inline: var(--ds-space-8);
+  background-color: var(--ds-monespace-header-bg);
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--ds-space-3);
+}
+
+.menuButton {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--ds-color-text);
+  cursor: pointer;
+  padding: 0;
+}
+
+.profile {
+  display: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-size-medium);
+  height: var(--ds-size-medium);
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: var(--ds-btn-dark-bg);
+  color: var(--ds-btn-dark-fg);
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-small-size);
+  font-weight: 600;
+}
+
+.profileName {
+  font-family: var(--ds-font-ui);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.content {
+  padding: var(--ds-space-6) var(--ds-space-8) var(--ds-space-8);
+}
+
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(30, 30, 30, 0.5);
+  z-index: 1000;
+  display: none;
+}
+
+.drawer {
+  width: min(85%, 300px);
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--ds-gradient-page);
+  color: var(--ds-color-text-on-dark);
+  display: flex;
+  flex-direction: column;
+  padding: var(--ds-space-6);
+  animation: slide-in 0.2s ease-out;
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--ds-space-8);
+}
+
+.drawerClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 0;
+}
+
+.drawerLink {
+  border: none;
+  background: none;
+  color: var(--ds-color-text-on-accent);
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-body-size);
+  text-align: left;
+  cursor: pointer;
+  padding: var(--ds-space-2) var(--ds-space-4);
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+.title {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-h1-size);
+  line-height: var(--ds-text-h1-line);
+  font-weight: 700;
+  margin: 0 0 var(--ds-space-4);
+}
+
+.list {
+  list-style: none;
+  margin: var(--ds-space-6) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  border: 1px solid var(--ds-color-border);
+  border-radius: var(--ds-radius-pill);
+  padding: var(--ds-space-3) var(--ds-space-4);
+}
+
+.rowLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.rowText {
+  min-width: 0;
+}
+
+.rowName {
+  font-family: var(--ds-font-ui);
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowStatus {
+  margin: 2px 0 0;
+  font-size: var(--ds-text-small-size);
+  color: var(--ds-color-text-muted);
+}
+
+.rowStatusExpired {
+  color: var(--ds-callout-error-fg);
+  font-weight: 600;
+}
+
+.rowRight {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  flex-shrink: 0;
+}
+
+.explain {
+  font-size: var(--ds-text-small-size);
+  color: var(--ds-color-text-muted);
+  max-width: 280px;
+  text-align: right;
+}
+
+.lock {
+  display: inline-flex;
+  color: var(--ds-color-text-muted);
+}
+
+.desktopActions {
+  display: flex;
+  gap: var(--ds-space-2);
+}
+
+.kebabButton {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ds-btn-secondary-border);
+  border-radius: var(--ds-radius);
+  background: none;
+  color: var(--ds-btn-secondary-fg);
+  cursor: pointer;
+}
+
+.kebabButton:focus-visible {
+  outline: 2px solid var(--ds-color-text);
+  outline-offset: 2px;
+}
+
+.skeletonRow {
+  height: 64px;
+  border-radius: var(--ds-radius-pill);
+  background: linear-gradient(90deg, var(--ds-btn-disabled-fill) 25%, var(--ds-color-border) 37%, var(--ds-btn-disabled-fill) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-pulse 1.4s ease infinite;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonRow {
+    animation: none;
+  }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-space-4);
+  margin-top: var(--ds-space-6);
+  max-width: 480px;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    display: none;
+  }
+
+  .headerBar {
+    justify-content: space-between;
+    padding-inline: var(--ds-space-4);
+  }
+
+  .headerActions {
+    display: none;
+  }
+
+  .menuButton {
+    display: inline-flex;
+  }
+
+  .profile {
+    display: flex;
+  }
+
+  .drawerOverlay {
+    display: flex;
+  }
+
+  .content {
+    padding-inline: var(--ds-space-4);
+  }
+
+  .explain {
+    max-width: 140px;
+  }
+
+  .desktopActions {
+    display: none;
+  }
+
+  .kebabButton {
+    display: inline-flex;
+  }
+}

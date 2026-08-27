@@ -1,0 +1,58 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(30, 30, 30, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.sheet {
+  background-color: var(--ds-color-surface);
+  border-radius: var(--ds-radius) var(--ds-radius) 0 0;
+  box-shadow: var(--ds-shadow-200);
+  padding: var(--ds-space-3) var(--ds-space-6) var(--ds-space-8);
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  font-family: var(--ds-font-body);
+  color: var(--ds-color-text);
+  animation: slide-up 0.2s ease-out;
+}
+
+.handle {
+  width: 40px;
+  height: 4px;
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--ds-color-border);
+  align-self: center;
+}
+
+.fileName {
+  font-family: var(--ds-font-ui);
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 var(--ds-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}

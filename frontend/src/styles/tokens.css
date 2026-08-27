@@ -75,6 +75,12 @@
   --ds-switch-border: rgba(215, 99, 11, 0.2);
   --ds-switch-selected-bg: #e77a6e;
 
+  /* Mon espace — the main panel isn't plain white like every other screen's
+   * card. Sampled from the mockups: a deeper cream behind the 72px header
+   * row, a paler one behind the file list. */
+  --ds-monespace-header-bg: #ffeee3;
+  --ds-monespace-content-bg: #fff8f3;
+
   /* Geometry */
   --ds-radius: 8px;
   --ds-radius-pill: 24px;

@@ -40,6 +40,7 @@ type Status =
 interface UploaderProps {
   token: string
   onUnauthorized: () => void
+  onNavigateHistory: () => void
 }
 
 function sleep(ms: number) {
@@ -109,7 +110,7 @@ function putPart(
 // Slices the file and pushes parts straight to storage — the bytes never
 // cross the API or nginx. Handles resilience during a send (per-part retry,
 // cancel); surviving a page reload is a separate job.
-export function Uploader({ token, onUnauthorized }: UploaderProps) {
+export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   // Kept alongside `status` so the file row (icon, name, size) stays visible
   // through uploading → scanning → done, not just while progress is known.
@@ -271,7 +272,7 @@ export function Uploader({ token, onUnauthorized }: UploaderProps) {
   )
 
   return (
-    <PageShell title={showCard ? 'Ajouter un fichier' : undefined} card={showCard} loggedIn onHeaderAction={onUnauthorized}>
+    <PageShell title={showCard ? 'Ajouter un fichier' : undefined} card={showCard} loggedIn onHeaderAction={onNavigateHistory}>
       {status.kind === 'idle' && (
         // Matches the idle mockup exactly: no card, no dashed dropzone — just
         // the prompt and the round upload button on the gradient.

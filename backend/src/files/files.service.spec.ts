@@ -19,6 +19,7 @@ describe('FilesService', () => {
     file: {
       create: jest.Mock;
       findFirst: jest.Mock;
+      findMany: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
     };
@@ -53,6 +54,7 @@ describe('FilesService', () => {
       file: {
         create: jest.fn(),
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
       },
@@ -309,6 +311,92 @@ describe('FilesService', () => {
       await expect(service.abortUpload(ownerId, fileId)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('listFiles', () => {
+    const readyFile = {
+      id: 'file-ready',
+      originalName: 'photo.jpg',
+      sizeBytes: 42,
+      createdAt: new Date('2026-08-01'),
+      expiresAt: new Date('2026-09-01'),
+      state: FileState.ready,
+      passwordHash: 'hashed',
+      downloadToken: 'token-ready',
+    };
+    const expiredFile = {
+      id: 'file-expired',
+      originalName: 'video.mp4',
+      sizeBytes: 99,
+      createdAt: new Date('2026-07-01'),
+      expiresAt: new Date('2026-08-01'),
+      state: FileState.expired,
+      passwordHash: null,
+      downloadToken: 'token-expired',
+    };
+
+    it('defaults to all and queries ready, expired and rejected states', async () => {
+      mockPrismaService.file.findMany.mockResolvedValue([]);
+
+      await service.listFiles(ownerId);
+
+      expect(mockPrismaService.file.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            ownerId,
+            state: {
+              in: [FileState.ready, FileState.expired, FileState.rejected],
+            },
+          },
+        }),
+      );
+    });
+
+    it('narrows to ready only for the active filter', async () => {
+      mockPrismaService.file.findMany.mockResolvedValue([]);
+
+      await service.listFiles(ownerId, 'active');
+
+      expect(mockPrismaService.file.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { ownerId, state: { in: [FileState.ready] } },
+        }),
+      );
+    });
+
+    it('narrows to expired only for the expired filter', async () => {
+      mockPrismaService.file.findMany.mockResolvedValue([]);
+
+      await service.listFiles(ownerId, 'expired');
+
+      expect(mockPrismaService.file.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { ownerId, state: { in: [FileState.expired] } },
+        }),
+      );
+    });
+
+    it('maps passwordHash to hasPassword and withholds the token off ready', async () => {
+      mockPrismaService.file.findMany.mockResolvedValue([
+        readyFile,
+        expiredFile,
+      ]);
+
+      const result = await service.listFiles(ownerId);
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'file-ready',
+          hasPassword: true,
+          downloadToken: 'token-ready',
+        }),
+        expect.objectContaining({
+          id: 'file-expired',
+          hasPassword: false,
+          downloadToken: undefined,
+        }),
+      ]);
     });
   });
 });
