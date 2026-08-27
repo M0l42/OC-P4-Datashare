@@ -1,12 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { ScanWorkerModule } from './scan/scan-worker.module';
+import { WorkerModule } from './worker.module';
 
 // Point d'entrée du conteneur worker. `createApplicationContext` et non
-// `create` : ce processus consomme une file, il n'écoute sur aucun port.
+// `create` : ce processus consomme des files (scan, purge), il n'écoute sur
+// aucun port.
 async function bootstrap() {
-  const app = await NestFactory.createApplicationContext(ScanWorkerModule);
+  const app = await NestFactory.createApplicationContext(WorkerModule);
   app.enableShutdownHooks();
-  new Logger('WorkerBootstrap').log('Validation worker ready');
+  new Logger('WorkerBootstrap').log('Validation and purge worker ready');
 }
 void bootstrap();
