@@ -246,4 +246,32 @@ describe('Files uploads (e2e)', () => {
       prisma.file.findUnique({ where: { id: body.fileId } }),
     ).resolves.toBeNull();
   });
+
+  // `id` is a UUID column: without ParseUUIDPipe on these four routes, a
+  // non-UUID string would fail inside Prisma (P2023) before the ownership
+  // check ever runs, leaking a 500 instead of a clean 400.
+  it('returns 400, not 500, for a malformed id on every :id route', async () => {
+    const malformed = 'does-not-exist';
+
+    await request(app.getHttpServer())
+      .get(`/files/uploads/${malformed}/parts`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get(`/files/uploads/${malformed}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`/files/uploads/${malformed}/complete`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ parts: [] })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .delete(`/files/uploads/${malformed}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+  });
 });

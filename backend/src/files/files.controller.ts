@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
   UseGuards,
@@ -60,8 +61,9 @@ export class FilesController {
     description: "Envoi inconnu ou n'appartenant pas à l'utilisateur",
   })
   @ApiResponse({ status: 410, description: 'Multipart expiré côté stockage' })
+  @ApiResponse({ status: 400, description: 'id mal formé (pas un UUID)' })
   @Get(':id/parts')
-  getParts(@Req() req: AuthedRequest, @Param('id') id: string) {
+  getParts(@Req() req: AuthedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.filesService.getUploadParts(req.user.userId, id);
   }
 
@@ -76,8 +78,9 @@ export class FilesController {
     status: 404,
     description: "Envoi inconnu ou n'appartenant pas à l'utilisateur",
   })
+  @ApiResponse({ status: 400, description: 'id mal formé (pas un UUID)' })
   @Get(':id/status')
-  getStatus(@Req() req: AuthedRequest, @Param('id') id: string) {
+  getStatus(@Req() req: AuthedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.filesService.getUploadStatus(req.user.userId, id);
   }
 
@@ -93,11 +96,12 @@ export class FilesController {
   })
   @ApiResponse({ status: 409, description: "L'envoi n'est plus en attente" })
   @ApiResponse({ status: 413, description: 'Taille réelle supérieure à 1 Gio' })
+  @ApiResponse({ status: 400, description: 'id mal formé (pas un UUID)' })
   @HttpCode(200)
   @Post(':id/complete')
   complete(
     @Req() req: AuthedRequest,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CompleteUploadDto,
   ) {
     return this.filesService.completeUpload(req.user.userId, id, dto);
@@ -110,9 +114,10 @@ export class FilesController {
     description: "Envoi inconnu ou n'appartenant pas à l'utilisateur",
   })
   @ApiResponse({ status: 409, description: "L'envoi n'est plus en attente" })
+  @ApiResponse({ status: 400, description: 'id mal formé (pas un UUID)' })
   @HttpCode(204)
   @Delete(':id')
-  abort(@Req() req: AuthedRequest, @Param('id') id: string) {
+  abort(@Req() req: AuthedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.filesService.abortUpload(req.user.userId, id);
   }
 }
