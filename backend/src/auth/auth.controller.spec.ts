@@ -29,7 +29,12 @@ describe('AuthController', () => {
 
   it('register() delegates to AuthService.register with the dto', async () => {
     const dto = { email: 'test@example.com', password: '12345678' };
-    const expected = { id: 'fake-id', email: dto.email, displayName: null, createdAt: new Date() };
+    const expected = {
+      id: 'fake-id',
+      email: dto.email,
+      displayName: null,
+      createdAt: new Date(),
+    };
     mockAuthService.register.mockResolvedValue(expected);
 
     const result = await controller.register(dto);
@@ -40,7 +45,10 @@ describe('AuthController', () => {
 
   it('login() delegates to AuthService.login with the dto', async () => {
     const dto = { email: 'test@example.com', password: '12345678' };
-    const expected = { user: { id: 'fake-id', email: dto.email }, token: 'fake-jwt-token' };
+    const expected = {
+      user: { id: 'fake-id', email: dto.email },
+      token: 'fake-jwt-token',
+    };
     mockAuthService.login.mockResolvedValue(expected);
 
     const result = await controller.login(dto);
