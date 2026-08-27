@@ -150,13 +150,19 @@ describe('File deletion (e2e)', () => {
   });
 
   it('returns 404 for a well-formed but unknown file id', async () => {
-    // `id` is a UUID column: a non-UUID string fails in Prisma before the
-    // existence check (P2023 → 500), a separate bug outside this test's
-    // scope. Use a well-formed but absent UUID instead.
     await request(app.getHttpServer())
       .delete('/files/00000000-0000-0000-0000-000000000000')
       .set('Authorization', `Bearer ${token}`)
       .expect(404);
+  });
+
+  it('returns 400 for a malformed id instead of leaking a 500 from Prisma', async () => {
+    // `id` is a UUID column: without ParseUUIDPipe, a non-UUID string would
+    // fail inside Prisma (P2023) before the existence check ever runs.
+    await request(app.getHttpServer())
+      .delete('/files/does-not-exist')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
   });
 
   it('returns 404 for a file owned by another user, and leaves it untouched', async () => {

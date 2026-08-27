@@ -3,6 +3,7 @@ import {
   Delete,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -37,9 +38,10 @@ export class FileDeletionController {
     status: 404,
     description: "Fichier inconnu ou n'appartenant pas à l'utilisateur",
   })
+  @ApiResponse({ status: 400, description: 'id mal formé (pas un UUID)' })
   @HttpCode(204)
   @Delete(':id')
-  remove(@Req() req: AuthedRequest, @Param('id') id: string) {
+  remove(@Req() req: AuthedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.fileDeletion.deleteOwnedFile(req.user.userId, id);
   }
 }
