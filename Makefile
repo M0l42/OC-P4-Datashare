@@ -8,8 +8,8 @@ COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
 .PHONY: help setup up down restart logs ps build rebuild install migrate \
-        migrate-dev studio init-bucket test test-cov test-e2e cypress lint shell-api \
-        shell-front scale clean nuke fix-perms
+        migrate-dev studio init-bucket test test-cov test-e2e cypress perf-download \
+        perf-upload lint shell-api shell-front scale clean nuke fix-perms
 
 help: ## Affiche cette aide
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -105,6 +105,20 @@ cypress: ## Tests E2E navigateur (QA-03) — nécessite `make up`.
 		-v "$(CURDIR)/frontend:/e2e" -w /e2e \
 		-e CYPRESS_BASE_URL=http://localhost:8080 \
 		cypress/included:15.21.1
+
+perf-download: ## QA-06 — k6 sur GET /d/:token (make perf-download n=1|3) — nécessite `make up`
+	@test -n "$(n)" || (echo "usage: make perf-download n=1|3"; exit 1)
+	$(MAKE) scale n=$(n)
+	@sleep 8
+	$(eval TOKEN := $(shell ./perf/seed-download-token.sh))
+	docker run --rm --network host \
+		-e BASE_URL=http://localhost:8080 \
+		-e TOKEN=$(TOKEN) \
+		-v "$(CURDIR)/perf:/perf" \
+		grafana/k6 run /perf/download-load-test.js
+
+perf-upload: ## QA-06 — mesure d'un téléversement de 800 Mo (CPU/mémoire API) — nécessite `make up`
+	./perf/measure-upload-800mb.sh
 
 lint: ## Lint back et front
 	$(COMPOSE) exec api npm run lint
