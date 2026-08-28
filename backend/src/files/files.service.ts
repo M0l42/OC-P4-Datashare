@@ -45,7 +45,14 @@ export class FilesService {
         'Declared file size exceeds the 1 GiB limit',
       );
     }
-    if (dto.tags && new Set(dto.tags).size !== dto.tags.length) {
+    // Case-insensitive, matching the client's own duplicate check — "Photo"
+    // next to an existing "photo" is a duplicate to a user, even though a
+    // plain Set would treat them as distinct strings.
+    if (
+      dto.tags &&
+      new Set(dto.tags.map((tag) => tag.toLowerCase())).size !==
+        dto.tags.length
+    ) {
       throw new BadRequestException('Duplicate tags are not allowed');
     }
 
@@ -256,6 +263,7 @@ export class FilesService {
         state: true,
         passwordHash: true,
         downloadToken: true,
+        tags: true,
       },
     });
 
@@ -271,6 +279,7 @@ export class FilesService {
       hasPassword: file.passwordHash !== null,
       downloadToken:
         file.state === FileState.ready ? file.downloadToken : undefined,
+      tags: file.tags,
     }));
   }
 

@@ -20,6 +20,7 @@ export interface FileHistoryEntry {
   hasPassword: boolean
   /** Only present when `state === 'ready'` — same anti-oracle rule as the uploader's status poll. */
   downloadToken?: string
+  tags: string[]
 }
 
 // GET /files?filter=... — Mon espace history. `active` narrows to ready,

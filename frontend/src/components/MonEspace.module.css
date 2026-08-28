@@ -264,6 +264,28 @@
   font-weight: 600;
 }
 
+/* Read-only echo of the chips from the upload form (US08) — no mockup draws
+ * tags anywhere, so this stays visually minimal rather than competing with
+ * the status line above it. */
+.rowTags {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+}
+
+.rowTagChip {
+  padding: 2px var(--ds-space-2);
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--ds-switch-bg);
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-small-size);
+  line-height: var(--ds-text-small-line);
+  color: var(--ds-btn-secondary-fg);
+}
+
 .rowRight {
   display: flex;
   align-items: center;

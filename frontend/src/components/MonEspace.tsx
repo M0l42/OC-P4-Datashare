@@ -237,6 +237,15 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
                       <p className={`${styles.rowStatus} ${file.state === 'expired' ? styles.rowStatusExpired : ''}`}>
                         {statusLabel(file)}
                       </p>
+                      {file.tags.length > 0 && (
+                        <ul className={styles.rowTags}>
+                          {file.tags.map((tag) => (
+                            <li key={tag} className={styles.rowTagChip}>
+                              {tag}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
 
