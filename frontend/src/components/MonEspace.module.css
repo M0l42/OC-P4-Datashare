@@ -183,6 +183,22 @@
   margin: 0 0 var(--ds-space-4);
 }
 
+/* No mockup covers tag filtering — same row as the Switch, pushed to the
+ * far side, aria-label only (no visible label) so it reads as a peer control
+ * rather than a full labelled form field breaking the row's height. */
+.filterRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+}
+
+.tagFilterSelect {
+  width: auto;
+  max-width: 200px;
+}
+
 .list {
   list-style: none;
   margin: var(--ds-space-6) 0 0;
@@ -262,6 +278,28 @@
 .rowStatusExpired {
   color: var(--ds-callout-error-fg);
   font-weight: 600;
+}
+
+/* Read-only echo of the chips from the upload form (US08) — no mockup draws
+ * tags anywhere, so this stays visually minimal rather than competing with
+ * the status line above it. */
+.rowTags {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+}
+
+.rowTagChip {
+  padding: 2px var(--ds-space-2);
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--ds-switch-bg);
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-small-size);
+  line-height: var(--ds-text-small-line);
+  color: var(--ds-btn-secondary-fg);
 }
 
 .rowRight {

@@ -22,13 +22,17 @@
 
 .control {
   height: var(--ds-size-medium);
-  padding: var(--ds-space-3) var(--ds-space-4);
+  /* Vertical padding trimmed and line-height loosened from a 1.0 ratio
+   * (16px/16px) to 1.2: at the old values there wasn't room in the 40px box
+   * for descenders (g/j/p/q/y get their tail clipped) — visible on
+   * "Expiration" ("jours") but present on every control using this class. */
+  padding: var(--ds-space-2) var(--ds-space-4);
   border-radius: var(--ds-radius);
   border: 1px solid var(--ds-color-border);
   background-color: var(--ds-color-surface);
   font-family: var(--ds-font-ui);
   font-size: var(--ds-text-body-size);
-  line-height: var(--ds-text-small-line);
+  line-height: 1.2;
   color: var(--ds-color-text);
   width: 100%;
   box-sizing: border-box;

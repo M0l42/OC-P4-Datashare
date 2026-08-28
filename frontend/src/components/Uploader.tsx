@@ -3,15 +3,36 @@ import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
 import { formatFileSize } from '../lib/format'
 import { md5Hex } from '../lib/md5'
 import { removeResumable, saveResumable, type ResumableUpload } from '../lib/resumeStore'
-import { Button, Callout, FileInfo, PageShell } from './ds'
-import { CopyIcon, UploadIcon } from './icons'
+import { Button, Callout, FileInfo, Input, PageShell, Select } from './ds'
+import { CloseIcon, CopyIcon, UploadIcon } from './icons'
 import styles from './Uploader.module.css'
+import fieldStyles from './ds/Field.module.css'
 
 const MAX_FILE_SIZE_BYTES = 1024 * 1024 * 1024 // rejected client-side before any request
 const MAX_PART_ATTEMPTS = 3
 const RETRY_DELAYS_MS = [500, 1500, 3000] // growing backoff between attempts
 const SCAN_POLL_INTERVAL_MS = 1500
 const SCAN_POLL_MAX_ATTEMPTS = 120 // ~3 minutes before giving up
+
+// Mirrors backend/src/files/upload.constants.ts — duplicated because the
+// frontend can't import from the Nest project, but every value here must
+// stay in lockstep with the server-side validation it's front-running.
+const MIN_DOWNLOAD_PASSWORD_LENGTH = 6
+const MAX_TAG_LENGTH = 30
+const MAX_TAGS = 20
+const DEFAULT_EXPIRY_DAYS = 7
+const MAX_EXPIRY_DAYS = 7
+
+const EXPIRY_OPTIONS = Array.from({ length: MAX_EXPIRY_DAYS }, (_, i) => {
+  const days = i + 1
+  return { value: String(days), label: days === 1 ? '1 jour' : `${days} jours` }
+})
+
+interface UploadOptions {
+  password?: string
+  tags: string[]
+  expiresInDays: number
+}
 
 interface InitiateResponse {
   fileId: string
@@ -40,6 +61,7 @@ interface PartsResponse {
 
 type Status =
   | { kind: 'idle' }
+  | { kind: 'configuring'; file: File }
   | { kind: 'uploading'; fileId: string; bytesSent: number; totalBytes: number }
   | { kind: 'verifying' }
   | { kind: 'scanning' }
@@ -238,12 +260,23 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
   const cancelRequestedRef = useRef(false)
   const cancelHandledRef = useRef(false)
 
-  async function handleFile(file: File) {
+  // US08/US09 options, live only while status is 'configuring'.
+  const [password, setPassword] = useState('')
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [expiresInDays, setExpiresInDays] = useState(DEFAULT_EXPIRY_DAYS)
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState('')
+  const [tagError, setTagError] = useState<string | null>(null)
+
+  // File chosen, not resuming: show the options screen the mockups draw
+  // (mot de passe, expiration) instead of uploading immediately. The actual
+  // send only starts once the user confirms via handleConfirmUpload.
+  function handleFile(file: File) {
     if (status.kind === 'uploading' || status.kind === 'verifying') {
       return
     }
     if (resumeTarget) {
-      await handleResumeFile(file, resumeTarget)
+      void handleResumeFile(file, resumeTarget)
       return
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -251,6 +284,63 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
       return
     }
 
+    // "Changer" re-enters here with status already 'configuring' — keep
+    // whatever password/expiry/tags the user already set. They're swapping
+    // the file, not starting over; only a genuinely fresh selection resets.
+    if (status.kind !== 'configuring') {
+      setPassword('')
+      setPasswordError(null)
+      setExpiresInDays(DEFAULT_EXPIRY_DAYS)
+      setTags([])
+      setTagInput('')
+      setTagError(null)
+    }
+    setStatus({ kind: 'configuring', file })
+  }
+
+  function handleTagInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter') {
+      return
+    }
+    event.preventDefault()
+    const value = tagInput.trim()
+    if (!value) {
+      return
+    }
+    if (value.length > MAX_TAG_LENGTH) {
+      setTagError(`${MAX_TAG_LENGTH} caractères maximum par tag.`)
+      return
+    }
+    if (tags.some((tag) => tag.toLowerCase() === value.toLowerCase())) {
+      setTagError('Ce tag est déjà ajouté.')
+      return
+    }
+    if (tags.length >= MAX_TAGS) {
+      setTagError(`${MAX_TAGS} tags maximum.`)
+      return
+    }
+    setTags((prev) => [...prev, value])
+    setTagInput('')
+    setTagError(null)
+  }
+
+  function handleRemoveTag(tag: string) {
+    setTags((prev) => prev.filter((existing) => existing !== tag))
+  }
+
+  function handleConfirmUpload() {
+    if (status.kind !== 'configuring') {
+      return
+    }
+    if (password && password.length < MIN_DOWNLOAD_PASSWORD_LENGTH) {
+      setPasswordError(`${MIN_DOWNLOAD_PASSWORD_LENGTH} caractères minimum.`)
+      return
+    }
+    setPasswordError(null)
+    void startFreshUpload(status.file, { password: password || undefined, tags, expiresInDays })
+  }
+
+  async function startFreshUpload(file: File, options: UploadOptions) {
     cancelRequestedRef.current = false
     cancelHandledRef.current = false
     setSelectedFile(file)
@@ -258,7 +348,14 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
     try {
       const initiate = await apiPost<InitiateResponse>(
         '/files/uploads',
-        { originalName: file.name, mimeType: file.type || 'application/octet-stream', sizeBytes: file.size },
+        {
+          originalName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+          password: options.password,
+          tags: options.tags,
+          expiresInDays: options.expiresInDays,
+        },
         token,
       )
 
@@ -485,6 +582,85 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
               <UploadIcon />
             </span>
           </button>
+          {fileInput}
+        </div>
+      )}
+
+      {status.kind === 'configuring' && (
+        <div className={styles.configForm}>
+          <div className={styles.configFileRow}>
+            <FileInfo name={status.file.name} size={formatFileSize(status.file.size)} />
+            {/* Medium, not Small: this row has no desktop/mobile split (unlike
+                Mon espace's row actions), and Small sits under the 44px
+                mobile touch-target minimum (UI-04). */}
+            <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+              Changer
+            </Button>
+          </div>
+
+          <Input
+            label="Mot de passe"
+            type="password"
+            placeholder="Optionnel"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value)
+              setPasswordError(null)
+            }}
+            error={passwordError ?? undefined}
+          />
+
+          <Select
+            label="Expiration"
+            value={String(expiresInDays)}
+            onChange={(e) => setExpiresInDays(Number(e.target.value))}
+            options={EXPIRY_OPTIONS}
+          />
+
+          <div className={fieldStyles.field}>
+            <label className={fieldStyles.label} htmlFor="upload-tag-input">
+              Tags
+            </label>
+            <input
+              id="upload-tag-input"
+              className={fieldStyles.control}
+              type="text"
+              placeholder="Ajouter un tag et appuyer sur Entrée"
+              value={tagInput}
+              maxLength={MAX_TAG_LENGTH}
+              onChange={(e) => {
+                setTagInput(e.target.value)
+                setTagError(null)
+              }}
+              onKeyDown={handleTagInputKeyDown}
+            />
+            {tags.length > 0 && (
+              <ul className={styles.tagList}>
+                {tags.map((tag) => (
+                  <li key={tag} className={styles.tagChip}>
+                    {tag}
+                    <button
+                      type="button"
+                      className={styles.tagRemove}
+                      aria-label={`Retirer le tag ${tag}`}
+                      onClick={() => handleRemoveTag(tag)}
+                    >
+                      <CloseIcon />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {tagError && (
+              <span className={fieldStyles.error} role="alert">
+                {tagError}
+              </span>
+            )}
+          </div>
+
+          <Button variant="primary" fullWidth icon={<UploadIcon />} onClick={handleConfirmUpload}>
+            Téléverser
+          </Button>
           {fileInput}
         </div>
       )}

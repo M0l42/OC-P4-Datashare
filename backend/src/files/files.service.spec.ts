@@ -151,6 +151,13 @@ describe('FilesService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(mockStorageService.createMultipartUpload).not.toHaveBeenCalled();
     });
+
+    it('rejects duplicate tags that differ only in case', async () => {
+      await expect(
+        service.initiateUpload(ownerId, { ...dto, tags: ['Photo', 'photo'] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockStorageService.createMultipartUpload).not.toHaveBeenCalled();
+    });
   });
 
   describe('getUploadParts', () => {
@@ -324,6 +331,7 @@ describe('FilesService', () => {
       state: FileState.ready,
       passwordHash: 'hashed',
       downloadToken: 'token-ready',
+      tags: ['vacances', 'photos'],
     };
     const expiredFile = {
       id: 'file-expired',
@@ -334,6 +342,7 @@ describe('FilesService', () => {
       state: FileState.expired,
       passwordHash: null,
       downloadToken: 'token-expired',
+      tags: [],
     };
 
     it('defaults to all and queries ready, expired and rejected states', async () => {
@@ -390,11 +399,13 @@ describe('FilesService', () => {
           id: 'file-ready',
           hasPassword: true,
           downloadToken: 'token-ready',
+          tags: ['vacances', 'photos'],
         }),
         expect.objectContaining({
           id: 'file-expired',
           hasPassword: false,
           downloadToken: undefined,
+          tags: [],
         }),
       ]);
     });

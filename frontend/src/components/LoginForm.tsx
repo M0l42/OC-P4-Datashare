@@ -11,11 +11,10 @@ interface LoginResponse {
 interface LoginFormProps {
   /** `label` is displayName, falling back to email — Mon espace's avatar needs a name and register.displayName is optional. */
   onLogin: (token: string, label: string) => void
+  onNavigateRegister: () => void
 }
 
-// Stopgap sign-in so the uploader has a token to work with. The real routed
-// auth screens land with the rest of the app.
-export function LoginForm({ onLogin }: LoginFormProps) {
+export function LoginForm({ onLogin, onNavigateRegister }: LoginFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -42,6 +41,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         <Input
           label="Email"
           type="email"
+          placeholder="Saisissez votre email…"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -49,13 +49,16 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         <Input
           label="Mot de passe"
           type="password"
-          placeholder="Saisissez le mot de passe…"
+          placeholder="Saisissez votre mot de passe…"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+        <Button type="button" variant="tertiary" className={styles.switchLink} onClick={onNavigateRegister}>
+          Créer un compte
+        </Button>
         <Button type="submit" variant="primary" fullWidth disabled={submitting}>
-          {submitting ? 'Connexion…' : 'Se connecter'}
+          {submitting ? 'Connexion…' : 'Connexion'}
         </Button>
       </form>
     </PageShell>
