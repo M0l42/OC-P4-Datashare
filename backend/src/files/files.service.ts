@@ -14,6 +14,7 @@ import { StorageService, UploadedPart } from '../storage/storage.service';
 import { ScanQueueService } from '../scan/scan-queue.service';
 import { InitiateUploadDto } from './dto/initiate-upload.dto';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { HistoryFilter } from './dto/list-files-query.dto';
 import {
   BLOCKED_EXTENSIONS,
   DEFAULT_EXPIRY_DAYS,
@@ -228,6 +229,49 @@ export class FilesService {
     const file = await this.findPendingUpload(ownerId, fileId);
     await this.storage.abortMultipartUpload(file.storageKey!, file.uploadId!);
     await this.prisma.file.delete({ where: { id: file.id } });
+  }
+
+  // `rejected` has no filter tab of its own — it only surfaces under `all`
+  // — because the mockups draw exactly three segments
+  // (Tous/Actifs/Expiré) and a refused file is neither active nor expired.
+  // `pending`/`uploaded`/`scanning`/`abandoned` never appear here: nothing
+  // has been "sent" yet from the owner's point of view.
+  async listFiles(ownerId: string, filter: HistoryFilter = 'all') {
+    const states: FileState[] =
+      filter === 'active'
+        ? [FileState.ready]
+        : filter === 'expired'
+          ? [FileState.expired]
+          : [FileState.ready, FileState.expired, FileState.rejected];
+
+    const files = await this.prisma.file.findMany({
+      where: { ownerId, state: { in: states } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        originalName: true,
+        sizeBytes: true,
+        createdAt: true,
+        expiresAt: true,
+        state: true,
+        passwordHash: true,
+        downloadToken: true,
+      },
+    });
+
+    // Same anti-oracle rule as getUploadStatus: the token only ever leaves
+    // the server attached to a `ready` row.
+    return files.map((file) => ({
+      id: file.id,
+      originalName: file.originalName,
+      sizeBytes: file.sizeBytes,
+      createdAt: file.createdAt,
+      expiresAt: file.expiresAt,
+      state: file.state,
+      hasPassword: file.passwordHash !== null,
+      downloadToken:
+        file.state === FileState.ready ? file.downloadToken : undefined,
+    }));
   }
 
   private async findPendingUpload(ownerId: string, fileId: string) {

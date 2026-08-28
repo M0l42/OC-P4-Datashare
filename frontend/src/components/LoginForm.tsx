@@ -5,10 +5,12 @@ import styles from './LoginForm.module.css'
 
 interface LoginResponse {
   token: string
+  user: { email: string; displayName: string | null }
 }
 
 interface LoginFormProps {
-  onLogin: (token: string) => void
+  /** `label` is displayName, falling back to email — Mon espace's avatar needs a name and register.displayName is optional. */
+  onLogin: (token: string, label: string) => void
 }
 
 // Stopgap sign-in so the uploader has a token to work with. The real routed
@@ -24,8 +26,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setError(null)
     setSubmitting(true)
     try {
-      const { token } = await apiPost<LoginResponse>('/auth/login', { email, password })
-      onLogin(token)
+      const { token, user } = await apiPost<LoginResponse>('/auth/login', { email, password })
+      onLogin(token, user.displayName ?? user.email)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Connexion impossible')
     } finally {
