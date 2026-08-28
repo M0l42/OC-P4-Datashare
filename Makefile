@@ -8,7 +8,7 @@ COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
 .PHONY: help setup up down restart logs ps build rebuild install migrate \
-        migrate-dev studio init-bucket test test-cov test-e2e lint shell-api \
+        migrate-dev studio init-bucket test test-cov test-e2e cypress lint shell-api \
         shell-front scale clean nuke fix-perms
 
 help: ## Affiche cette aide
@@ -97,8 +97,14 @@ test: ## Tests unitaires et d'intégration
 test-cov: ## Tests avec rapport de couverture
 	$(COMPOSE) exec api npm run test:cov
 
-test-e2e: ## Tests end-to-end
+test-e2e: ## Tests d'intégration Supertest (backend)
 	$(COMPOSE) exec api npm run test:e2e
+
+cypress: ## Tests E2E navigateur (QA-03) — nécessite `make up`.
+	docker run --rm --init --network host \
+		-v "$(CURDIR)/frontend:/e2e" -w /e2e \
+		-e CYPRESS_BASE_URL=http://localhost:8080 \
+		cypress/included:15.21.1
 
 lint: ## Lint back et front
 	$(COMPOSE) exec api npm run lint
