@@ -192,6 +192,32 @@
   gap: var(--ds-space-3);
 }
 
+/* No mockup covers interrupted uploads (US01-R) — a distinct section keeps
+ * it from reading as a fourth file state mixed into the Tous/Actifs/Expiré
+ * model, which it isn't: it's local-device state, not server history. */
+.resumeSection {
+  margin-top: var(--ds-space-6);
+}
+
+.resumeSectionTitle {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-h2-size);
+  line-height: var(--ds-text-h2-line);
+  font-weight: 700;
+  margin: 0;
+}
+
+/* Always inline on both breakpoints, unlike the history rows' desktop/mobile
+ * split — this list is rarely more than one row, so a kebab sheet would be
+ * more chrome than the content warrants. Medium buttons keep the 44px touch
+ * target without needing that split. */
+.resumeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  flex-shrink: 0;
+}
+
 .row {
   display: flex;
   align-items: center;

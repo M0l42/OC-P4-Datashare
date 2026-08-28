@@ -3,6 +3,7 @@ import { LoginForm } from './components/LoginForm'
 import { Uploader } from './components/Uploader'
 import { RecipientPage } from './components/RecipientPage'
 import { MonEspace } from './components/MonEspace'
+import type { ResumableUpload } from './lib/resumeStore'
 
 const TOKEN_STORAGE_KEY = 'datashare_token'
 const USER_LABEL_STORAGE_KEY = 'datashare_user_label'
@@ -20,6 +21,7 @@ function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_STORAGE_KEY))
   const [userLabel, setUserLabel] = useState<string | null>(() => localStorage.getItem(USER_LABEL_STORAGE_KEY))
   const [view, setView] = useState<View>('uploader')
+  const [resumeTarget, setResumeTarget] = useState<ResumableUpload | null>(null)
 
   function handleLogin(newToken: string, label: string) {
     localStorage.setItem(TOKEN_STORAGE_KEY, newToken)
@@ -51,9 +53,19 @@ function App() {
       userLabel={userLabel ?? '?'}
       onUnauthorized={handleLogout}
       onNavigateUpload={() => setView('uploader')}
+      onResume={(entry) => {
+        setResumeTarget(entry)
+        setView('uploader')
+      }}
     />
   ) : (
-    <Uploader token={token} onUnauthorized={handleLogout} onNavigateHistory={() => setView('history')} />
+    <Uploader
+      token={token}
+      onUnauthorized={handleLogout}
+      onNavigateHistory={() => setView('history')}
+      resumeTarget={resumeTarget}
+      onResumeConsumed={() => setResumeTarget(null)}
+    />
   )
 }
 

@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
 import { formatFileSize } from '../lib/format'
+import { md5Hex } from '../lib/md5'
+import { removeResumable, saveResumable, type ResumableUpload } from '../lib/resumeStore'
 import { Button, Callout, FileInfo, PageShell } from './ds'
 import { CopyIcon, UploadIcon } from './icons'
 import styles from './Uploader.module.css'
@@ -29,9 +31,17 @@ interface StatusResponse {
   downloadToken?: string
 }
 
+interface PartsResponse {
+  totalParts: number
+  partSize: number
+  completedParts: { partNumber: number; etag: string; size: number }[]
+  missingParts: { partNumber: number; url: string }[]
+}
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'uploading'; fileId: string; bytesSent: number; totalBytes: number }
+  | { kind: 'verifying' }
   | { kind: 'scanning' }
   | { kind: 'done'; downloadToken: string }
   | { kind: 'cancelled' }
@@ -41,6 +51,10 @@ interface UploaderProps {
   token: string
   onUnauthorized: () => void
   onNavigateHistory: () => void
+  /** Set when the user clicked "Reprendre" on an interrupted upload in Mon espace. */
+  resumeTarget: ResumableUpload | null
+  /** Called once a resume attempt starts (success or failure) — App drops resumeTarget so a later fresh visit to the uploader doesn't re-prompt. */
+  onResumeConsumed: () => void
 }
 
 function sleep(ms: number) {
@@ -107,10 +121,112 @@ function putPart(
   })
 }
 
+// Shared by a fresh upload and a resumed one: signs+retries+reports progress
+// for whichever parts still need sending. `bytesAlreadySent` seeds the
+// progress total with bytes S3 already has (0 for a fresh upload, the sum of
+// verified completed parts when resuming). Byte offsets come from
+// `partNumber`, not array position, since a resume's `parts` list only holds
+// the gaps and isn't necessarily a contiguous prefix.
+async function uploadParts(
+  file: File,
+  parts: { partNumber: number; url: string }[],
+  partSize: number,
+  bytesAlreadySent: number,
+  setStatus: (updater: (prev: Status) => Status) => void,
+  xhrRef: { current: XMLHttpRequest | null },
+  cancelRequestedRef: { current: boolean },
+): Promise<{ partNumber: number; etag: string }[] | 'cancelled'> {
+  const completedParts: { partNumber: number; etag: string }[] = []
+  let sessionBytesSent = 0
+
+  for (const part of parts) {
+    if (cancelRequestedRef.current) {
+      return 'cancelled'
+    }
+
+    const start = (part.partNumber - 1) * partSize
+    const chunk = file.slice(start, start + partSize)
+    const bytesBeforeThisPart = bytesAlreadySent + sessionBytesSent
+
+    let etag: string | null = null
+    let lastError: unknown = null
+
+    for (let attempt = 0; attempt < MAX_PART_ATTEMPTS; attempt++) {
+      try {
+        etag = await putPart(
+          part.url,
+          chunk,
+          bytesBeforeThisPart,
+          (bytesSentTotal) => {
+            setStatus((prev) => (prev.kind === 'uploading' ? { ...prev, bytesSent: bytesSentTotal } : prev))
+          },
+          xhrRef,
+        )
+        break
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return 'cancelled'
+        }
+        lastError = err
+        if (attempt < MAX_PART_ATTEMPTS - 1) {
+          await sleep(RETRY_DELAYS_MS[attempt])
+          if (cancelRequestedRef.current) {
+            return 'cancelled'
+          }
+        }
+      }
+    }
+
+    if (!etag) {
+      throw lastError instanceof Error ? lastError : new Error(`Échec de l'envoi de la partie ${part.partNumber}`)
+    }
+
+    completedParts.push({ partNumber: part.partNumber, etag })
+    sessionBytesSent += chunk.size
+    setStatus((prev) =>
+      prev.kind === 'uploading' ? { ...prev, bytesSent: bytesAlreadySent + sessionBytesSent } : prev,
+    )
+  }
+
+  return completedParts
+}
+
+// Verifies a sample of parts S3 already has (first, last, one random middle —
+// not all of them, which would hash hundreds of MB on the main thread) against
+// the re-selected file. Without this, re-selecting a *different* file of the
+// same declared name/size/lastModified would complete successfully and hand
+// back a link to a silently corrupted object.
+async function verifyCompletedParts(
+  file: File,
+  partSize: number,
+  completed: { partNumber: number; etag: string; size: number }[],
+): Promise<boolean> {
+  if (completed.length === 0) {
+    return true
+  }
+  const sorted = [...completed].sort((a, b) => a.partNumber - b.partNumber)
+  const sampleIndexes = new Set<number>([0, sorted.length - 1])
+  if (sorted.length > 2) {
+    sampleIndexes.add(1 + Math.floor(Math.random() * (sorted.length - 2)))
+  }
+
+  for (const index of sampleIndexes) {
+    const part = sorted[index]
+    const start = (part.partNumber - 1) * partSize
+    const chunk = file.slice(start, start + part.size)
+    const computed = md5Hex(await chunk.arrayBuffer())
+    const expected = part.etag.replace(/"/g, '')
+    if (computed !== expected) {
+      return false
+    }
+  }
+  return true
+}
+
 // Slices the file and pushes parts straight to storage — the bytes never
 // cross the API or nginx. Handles resilience during a send (per-part retry,
-// cancel); surviving a page reload is a separate job.
-export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderProps) {
+// cancel) and, since US01-R, resuming an upload interrupted by a reload.
+export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarget, onResumeConsumed }: UploaderProps) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   // Kept alongside `status` so the file row (icon, name, size) stays visible
   // through uploading → scanning → done, not just while progress is known.
@@ -123,7 +239,11 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
   const cancelHandledRef = useRef(false)
 
   async function handleFile(file: File) {
-    if (status.kind === 'uploading') {
+    if (status.kind === 'uploading' || status.kind === 'verifying') {
+      return
+    }
+    if (resumeTarget) {
+      await handleResumeFile(file, resumeTarget)
       return
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -146,67 +266,28 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
         return
       }
       setStatus({ kind: 'uploading', fileId: initiate.fileId, bytesSent: 0, totalBytes: file.size })
+      // Persisted before the first byte goes out: a reload one second later
+      // still needs to be able to offer "Reprendre".
+      await saveResumable({
+        fileId: initiate.fileId,
+        originalName: file.name,
+        sizeBytes: file.size,
+        lastModified: file.lastModified,
+        mimeType: file.type || 'application/octet-stream',
+        createdAt: Date.now(),
+      })
 
-      const completedParts: { partNumber: number; etag: string }[] = []
-      let bytesBeforeCurrentPart = 0
-
-      for (const part of initiate.parts) {
-        if (cancelRequestedRef.current) {
-          return
-        }
-
-        const start = (part.partNumber - 1) * initiate.partSize
-        const chunk = file.slice(start, start + initiate.partSize)
-        const partBytesStart = bytesBeforeCurrentPart
-
-        let etag: string | null = null
-        let lastError: unknown = null
-
-        for (let attempt = 0; attempt < MAX_PART_ATTEMPTS; attempt++) {
-          try {
-            etag = await putPart(
-              part.url,
-              chunk,
-              partBytesStart,
-              (bytesSentTotal) => {
-                setStatus((prev) => (prev.kind === 'uploading' ? { ...prev, bytesSent: bytesSentTotal } : prev))
-              },
-              xhrRef,
-            )
-            break
-          } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') {
-              // Cancelling: handleCancelClick owns the cleanup, not this.
-              return
-            }
-            lastError = err
-            if (attempt < MAX_PART_ATTEMPTS - 1) {
-              await sleep(RETRY_DELAYS_MS[attempt])
-              if (cancelRequestedRef.current) {
-                return
-              }
-            }
-          }
-        }
-
-        if (!etag) {
-          throw lastError instanceof Error ? lastError : new Error(`Échec de l'envoi de la partie ${part.partNumber}`)
-        }
-
-        completedParts.push({ partNumber: part.partNumber, etag })
-        bytesBeforeCurrentPart += chunk.size
-        setStatus((prev) => (prev.kind === 'uploading' ? { ...prev, bytesSent: bytesBeforeCurrentPart } : prev))
+      const result = await uploadParts(file, initiate.parts, initiate.partSize, 0, setStatus, xhrRef, cancelRequestedRef)
+      if (result === 'cancelled') {
+        return
       }
 
       if (cancelRequestedRef.current) {
         return
       }
 
-      await apiPost<CompleteResponse>(
-        `/files/uploads/${initiate.fileId}/complete`,
-        { parts: completedParts },
-        token,
-      )
+      await apiPost<CompleteResponse>(`/files/uploads/${initiate.fileId}/complete`, { parts: result }, token)
+      await removeResumable(initiate.fileId)
       setStatus({ kind: 'scanning' })
       const downloadToken = await pollUntilScanned(initiate.fileId, token)
       setStatus({ kind: 'done', downloadToken })
@@ -219,6 +300,96 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
         setStatus({
           kind: 'error',
           message: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Envoi échoué',
+        })
+      }
+    }
+  }
+
+  // US01-R: the user re-selected a file for an upload interrupted by a
+  // reload. Refuse on any mismatch, verify a sample of what S3 already has
+  // against the re-selected file, then finish sending only the missing parts.
+  async function handleResumeFile(file: File, target: ResumableUpload) {
+    if (
+      file.name !== target.originalName ||
+      file.size !== target.sizeBytes ||
+      file.lastModified !== target.lastModified
+    ) {
+      setStatus({
+        kind: 'error',
+        message: "Ce fichier ne correspond pas à l'envoi interrompu. Sélectionne exactement le même fichier.",
+      })
+      return
+    }
+
+    cancelRequestedRef.current = false
+    cancelHandledRef.current = false
+    setSelectedFile(file)
+    setStatus({ kind: 'verifying' })
+
+    try {
+      const parts = await apiGet<PartsResponse>(`/files/uploads/${target.fileId}/parts`, token)
+
+      const verified = await verifyCompletedParts(file, parts.partSize, parts.completedParts)
+      if (!verified) {
+        // Not removed from the resume store: this is a wrong-file mistake,
+        // not a dead upload — the interrupted row is still there to retry
+        // with the right one from Mon espace.
+        setStatus({
+          kind: 'error',
+          message: "Ce fichier ne correspond pas exactement à l'envoi interrompu. Recommence l'envoi.",
+        })
+        return
+      }
+
+      const bytesAlreadySent = parts.completedParts.reduce((sum, part) => sum + part.size, 0)
+      setStatus({ kind: 'uploading', fileId: target.fileId, bytesSent: bytesAlreadySent, totalBytes: file.size })
+
+      const result = await uploadParts(
+        file,
+        parts.missingParts,
+        parts.partSize,
+        bytesAlreadySent,
+        setStatus,
+        xhrRef,
+        cancelRequestedRef,
+      )
+      if (result === 'cancelled') {
+        return
+      }
+      if (cancelRequestedRef.current) {
+        return
+      }
+
+      const allParts = [...parts.completedParts.map(({ partNumber, etag }) => ({ partNumber, etag })), ...result].sort(
+        (a, b) => a.partNumber - b.partNumber,
+      )
+
+      await apiPost<CompleteResponse>(`/files/uploads/${target.fileId}/complete`, { parts: allParts }, token)
+      await removeResumable(target.fileId)
+      onResumeConsumed()
+      setStatus({ kind: 'scanning' })
+      const downloadToken = await pollUntilScanned(target.fileId, token)
+      setStatus({ kind: 'done', downloadToken })
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onUnauthorized()
+        return
+      }
+      if (err instanceof ApiError && [404, 409, 410].includes(err.status)) {
+        // Row gone (reaper collected it), no longer pending, or MinIO already
+        // dropped the multipart upload — none of these are resumable.
+        await removeResumable(target.fileId)
+        onResumeConsumed()
+        setStatus({
+          kind: 'error',
+          message: "Cet envoi n'est plus disponible (trop ancien ou déjà terminé). Recommence depuis le début.",
+        })
+        return
+      }
+      if (!cancelRequestedRef.current) {
+        setStatus({
+          kind: 'error',
+          message: err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Reprise échouée',
         })
       }
     }
@@ -241,11 +412,15 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
         // Best effort: if this fails the row stays pending and the scheduled
         // reaper collects it, so nothing is orphaned for long.
       }
+      await removeResumable(fileId)
+      // No-op if this wasn't a resume in progress; if it was, that attempt is
+      // over — the row and the local record are both gone.
+      onResumeConsumed()
       setStatus({ kind: 'cancelled' })
     })()
   }
 
-  const isUploading = status.kind === 'uploading'
+  const isUploading = status.kind === 'uploading' || status.kind === 'verifying'
 
   function onDrop(event: React.DragEvent) {
     event.preventDefault()
@@ -256,7 +431,12 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
     if (file) void handleFile(file)
   }
 
-  const showCard = status.kind !== 'idle'
+  // A pending resumeTarget turns the empty idle screen into a re-selection
+  // prompt — enough extra content (file info, explanation, two buttons) that
+  // it needs the card treatment the bare idle screen deliberately skips.
+  const showResumePrompt = status.kind === 'idle' && resumeTarget !== null
+  const showCard = status.kind !== 'idle' || showResumePrompt
+  const cardTitle = showResumePrompt ? "Reprendre l'envoi" : showCard ? 'Ajouter un fichier' : undefined
 
   const fileInput = (
     <input
@@ -272,8 +452,25 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
   )
 
   return (
-    <PageShell title={showCard ? 'Ajouter un fichier' : undefined} card={showCard} loggedIn onHeaderAction={onNavigateHistory}>
-      {status.kind === 'idle' && (
+    <PageShell title={cardTitle} card={showCard} loggedIn onHeaderAction={onNavigateHistory}>
+      {status.kind === 'idle' && resumeTarget && (
+        <div className={styles.dropZone}>
+          <FileInfo name={resumeTarget.originalName} size={formatFileSize(resumeTarget.sizeBytes)} />
+          <Callout variant="info">
+            Cet envoi a été interrompu. Sélectionne à nouveau exactement le même fichier pour continuer sans tout
+            renvoyer.
+          </Callout>
+          <Button variant="secondary" onClick={() => inputRef.current?.click()}>
+            Choisir le fichier
+          </Button>
+          <Button variant="tertiary" onClick={onResumeConsumed}>
+            Annuler la reprise
+          </Button>
+          {fileInput}
+        </div>
+      )}
+
+      {status.kind === 'idle' && !resumeTarget && (
         // Matches the idle mockup exactly: no card, no dashed dropzone — just
         // the prompt and the round upload button on the gradient.
         <div className={styles.idle} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
@@ -319,6 +516,13 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory }: UploaderP
           <Button variant="tertiary" onClick={handleCancelClick}>
             Annuler
           </Button>
+        </div>
+      )}
+
+      {status.kind === 'verifying' && (
+        <div className={styles.done}>
+          {selectedFile && <FileInfo name={selectedFile.name} size={formatFileSize(selectedFile.size)} />}
+          <Callout variant="info">Vérification du fichier…</Callout>
         </div>
       )}
 

@@ -17,6 +17,7 @@ import { ApiError } from '../lib/api'
 import { deleteFile, listFiles, type FileHistoryEntry, type HistoryFilter } from '../lib/files'
 import { formatFileSize } from '../lib/format'
 import { expiryTone } from '../lib/expiryTone'
+import { listResumables, removeResumable, type ResumableUpload } from '../lib/resumeStore'
 import styles from './MonEspace.module.css'
 
 interface MonEspaceProps {
@@ -25,6 +26,8 @@ interface MonEspaceProps {
   userLabel: string
   onUnauthorized: () => void
   onNavigateUpload: () => void
+  /** US01-R: hands the interrupted-upload record to the uploader so it can prompt for re-selection. */
+  onResume: (entry: ResumableUpload) => void
 }
 
 const FILTER_OPTIONS: SwitchOption<HistoryFilter>[] = [
@@ -39,12 +42,14 @@ type LoadState = { kind: 'loading' } | { kind: 'loaded'; files: FileHistoryEntry
 // expiry line, as in the mockups), expiry date and link state, owner-scoped.
 // Its own layout rather than PageShell — the mockups draw a sidebar frame no
 // other screen uses, not the centred card every other screen shares.
-export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload }: MonEspaceProps) {
+export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, onResume }: MonEspaceProps) {
   const [filter, setFilter] = useState<HistoryFilter>('all')
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [sheetTarget, setSheetTarget] = useState<FileHistoryEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileHistoryEntry | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [resumables, setResumables] = useState<ResumableUpload[]>([])
+  const [abandonError, setAbandonError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!drawerOpen) return
@@ -73,11 +78,44 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload }
     void load()
   }, [load])
 
+  // Local-only, per browser/device — a reload elsewhere can't offer to
+  // resume an upload it never saw start. Loaded once; the list only ever
+  // shrinks from user action within this session, so no polling.
+  useEffect(() => {
+    void listResumables().then(setResumables)
+  }, [])
+
   async function handleDelete() {
     if (!deleteTarget) return
     await deleteFile(deleteTarget.id, token)
     setDeleteTarget(null)
     await load()
+  }
+
+  // Abandoning an interrupted upload, not deleting a sent file — same
+  // owner-scoped DELETE /files/:id (FileDeletionService aborts the multipart
+  // for a still-`pending` row), but no ConfirmDeleteDialog: nothing was ever
+  // shared, so there's nothing irreversible to warn about.
+  async function handleAbandonResume(entry: ResumableUpload) {
+    setAbandonError(null)
+    try {
+      await deleteFile(entry.fileId, token)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onUnauthorized()
+        return
+      }
+      if (!(error instanceof ApiError && error.status === 404)) {
+        // Anything but "already gone" is a real failure — surface it rather
+        // than silently dropping the local record, which would make an
+        // upload that's still pending server-side untraceable from here.
+        setAbandonError("Impossible d'annuler cet envoi pour l'instant. Réessaie.")
+        return
+      }
+      // 404: already gone (reaper, or resumed+completed from another tab).
+    }
+    await removeResumable(entry.fileId)
+    setResumables((prev) => prev.filter((item) => item.fileId !== entry.fileId))
   }
 
   function handleAccess(file: FileHistoryEntry) {
@@ -125,6 +163,42 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload }
 
         <div className={styles.content}>
           <h1 className={styles.title}>Mes fichiers</h1>
+
+          {resumables.length > 0 && (
+            <div className={styles.resumeSection}>
+              <h2 className={styles.resumeSectionTitle}>Envois interrompus</h2>
+              {abandonError && <Callout variant="error">{abandonError}</Callout>}
+              <ul className={styles.list}>
+                {resumables.map((entry) => (
+                  <li key={entry.fileId} className={styles.row}>
+                    <div className={styles.rowLeft}>
+                      <span className={styles.rowIcon}>
+                        <FileIcon />
+                      </span>
+                      <div className={styles.rowText}>
+                        <p className={styles.rowName}>{entry.originalName}</p>
+                        <p className={styles.rowStatus}>{formatFileSize(entry.sizeBytes)} — envoi interrompu</p>
+                      </div>
+                    </div>
+                    <div className={styles.resumeActions}>
+                      <Button variant="secondary" size="medium" onClick={() => onResume(entry)}>
+                        Reprendre
+                      </Button>
+                      <Button
+                        variant="tertiary"
+                        size="medium"
+                        icon={<TrashIcon />}
+                        onClick={() => void handleAbandonResume(entry)}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <Switch options={FILTER_OPTIONS} value={filter} onChange={setFilter} label="Filtrer l'historique" />
 
           {state.kind === 'loading' && (
