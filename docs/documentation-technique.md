@@ -32,14 +32,14 @@ DataShare est une application web à séparation front/back stricte, déployée 
 
 | Brique | Rôle | Arrivée |
 |---|---|---|
-| nginx | Sert le build React, proxifie `/api`, répartit la charge sur les réplicas via `upstream`, point de terminaison TLS | J1 |
+| nginx | Sert le build React, proxifie `/api` vers HAProxy, point de terminaison TLS | J1 |
 | API NestJS (×N) | Endpoints REST, authentification JWT, signature des URLs de stockage, génération de la spécification OpenAPI | J1 |
 | PostgreSQL | Utilisateurs, fichiers, tags | J1 |
 | Redis | Support de files BullMQ et limitation de débit | J1 |
 | MinIO | Stockage objet compatible S3 | J1 |
 | Worker BullMQ | Validation post-upload, purges planifiées, reaper des uploads abandonnés | S2 |
 | ClamAV | Analyse antivirale, plafonnée à 50 Mo | S2 |
-| HAProxy | Répartition de second niveau, pour la mesure de montée en charge de PERF.md | S2 |
+| HAProxy | Répartition de charge sur les réplicas de l'API, découverte par DNS (suit `make scale`) | S2 |
 
 Chaque conteneur répond à la question « pourquoi existe-t-il » en une phrase. Aucun n'est présent par principe.
 
@@ -266,7 +266,9 @@ Deux mesures distinctes, pour une raison précise :
 
 Charger l'endpoint d'initiation aurait mesuré un HMAC et un `INSERT` : c'est justement parce que l'API ne touche pas aux octets que le débit ne s'y mesure pas.
 
-Budget de performance côté front : poids du bundle et métriques navigateur.
+Résultats, méthode et un correctif nginx trouvé en cours de mesure (SOC-06) : voir `PERF.md` à la racine.
+
+Budget de performance côté front (poids du bundle, métriques navigateur) : hors périmètre de QA-06, non couvert.
 
 Coût d'egress de la validation à documenter, avec la distinction qui compte : le contrôle des octets magiques est une **lecture par plage** de quelques dizaines d'octets, quelle que soit la taille du fichier ; seul le scan ClamAV extrait l'objet entier, et uniquement sous le plafond de 50 Mo. Un fichier de 1 Go coûte donc 64 octets d'egress de validation, pas 1 Go.
 

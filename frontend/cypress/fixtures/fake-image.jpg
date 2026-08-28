@@ -1,0 +1,1 @@
+This is plain text wearing a .jpg extension, on purpose — no JPEG signature at the start, so the worker's magic-byte check must reject it.
