@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { LoginForm } from './components/LoginForm'
+import { RegisterForm } from './components/RegisterForm'
 import { Uploader } from './components/Uploader'
 import { RecipientPage } from './components/RecipientPage'
 import { MonEspace } from './components/MonEspace'
@@ -8,19 +9,20 @@ import type { ResumableUpload } from './lib/resumeStore'
 const TOKEN_STORAGE_KEY = 'datashare_token'
 const USER_LABEL_STORAGE_KEY = 'datashare_user_label'
 
-// Routage manuel volontairement minimal : une vraie librairie de routage est
-// le périmètre de UI-03 (« Reste de l'app React »), pas encore construit.
-// /d/:token est la seule route publique (destinataire non authentifié) ; le
-// reste de l'app logged-in bascule entre deux vues via un simple state, pas
-// une URL.
+// Routage manuel volontairement minimal (UI-03) : /d/:token is the only
+// public route (unauthenticated recipient); everything else — including the
+// login/register split — is a state toggle, not a URL, so there's nothing
+// to bookmark mid-flow that a full router would need to reconstruct.
 const RECIPIENT_PATH_PATTERN = /^\/d\/(.+)$/
 
 type View = 'uploader' | 'history'
+type AuthView = 'login' | 'register'
 
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_STORAGE_KEY))
   const [userLabel, setUserLabel] = useState<string | null>(() => localStorage.getItem(USER_LABEL_STORAGE_KEY))
   const [view, setView] = useState<View>('uploader')
+  const [authView, setAuthView] = useState<AuthView>('login')
   const [resumeTarget, setResumeTarget] = useState<ResumableUpload | null>(null)
 
   function handleLogin(newToken: string, label: string) {
@@ -36,6 +38,8 @@ function App() {
     setToken(null)
     setUserLabel(null)
     setView('uploader')
+    setAuthView('login')
+    setResumeTarget(null)
   }
 
   const recipientMatch = RECIPIENT_PATH_PATTERN.exec(window.location.pathname)
@@ -44,7 +48,11 @@ function App() {
   }
 
   if (!token) {
-    return <LoginForm onLogin={handleLogin} />
+    return authView === 'register' ? (
+      <RegisterForm onRegistered={handleLogin} onNavigateLogin={() => setAuthView('login')} />
+    ) : (
+      <LoginForm onLogin={handleLogin} onNavigateRegister={() => setAuthView('register')} />
+    )
   }
 
   return view === 'history' ? (

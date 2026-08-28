@@ -19,6 +19,7 @@ import { formatFileSize } from '../lib/format'
 import { expiryTone } from '../lib/expiryTone'
 import { listResumables, removeResumable, type ResumableUpload } from '../lib/resumeStore'
 import styles from './MonEspace.module.css'
+import fieldStyles from './ds/Field.module.css'
 
 interface MonEspaceProps {
   token: string
@@ -38,12 +39,9 @@ const FILTER_OPTIONS: SwitchOption<HistoryFilter>[] = [
 
 type LoadState = { kind: 'loading' } | { kind: 'loaded'; files: FileHistoryEntry[] } | { kind: 'error' }
 
-// The list screen US05 requires: name, size, sent date (folded into the
-// expiry line, as in the mockups), expiry date and link state, owner-scoped.
-// Its own layout rather than PageShell — the mockups draw a sidebar frame no
-// other screen uses, not the centred card every other screen shares.
 export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, onResume }: MonEspaceProps) {
   const [filter, setFilter] = useState<HistoryFilter>('all')
+  const [tagFilter, setTagFilter] = useState('')
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [sheetTarget, setSheetTarget] = useState<FileHistoryEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileHistoryEntry | null>(null)
@@ -78,9 +76,6 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
     void load()
   }, [load])
 
-  // Local-only, per browser/device — a reload elsewhere can't offer to
-  // resume an upload it never saw start. Loaded once; the list only ever
-  // shrinks from user action within this session, so no polling.
   useEffect(() => {
     void listResumables().then(setResumables)
   }, [])
@@ -92,10 +87,6 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
     await load()
   }
 
-  // Abandoning an interrupted upload, not deleting a sent file — same
-  // owner-scoped DELETE /files/:id (FileDeletionService aborts the multipart
-  // for a still-`pending` row), but no ConfirmDeleteDialog: nothing was ever
-  // shared, so there's nothing irreversible to warn about.
   async function handleAbandonResume(entry: ResumableUpload) {
     setAbandonError(null)
     try {
@@ -106,9 +97,6 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
         return
       }
       if (!(error instanceof ApiError && error.status === 404)) {
-        // Anything but "already gone" is a real failure — surface it rather
-        // than silently dropping the local record, which would make an
-        // upload that's still pending server-side untraceable from here.
         setAbandonError("Impossible d'annuler cet envoi pour l'instant. Réessaie.")
         return
       }
@@ -122,6 +110,18 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
     if (!file.downloadToken) return
     window.open(`/d/${file.downloadToken}`, '_blank', 'noopener')
   }
+
+  const availableTags =
+    state.kind === 'loaded'
+      ? Array.from(new Set(state.files.flatMap((file) => file.tags))).sort((a, b) => a.localeCompare(b))
+      : []
+  const activeTagFilter = availableTags.includes(tagFilter) ? tagFilter : ''
+  const visibleFiles =
+    state.kind === 'loaded'
+      ? activeTagFilter
+        ? state.files.filter((file) => file.tags.includes(activeTagFilter))
+        : state.files
+      : []
 
   return (
     <div className={styles.page}>
@@ -199,7 +199,33 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
             </div>
           )}
 
-          <Switch options={FILTER_OPTIONS} value={filter} onChange={setFilter} label="Filtrer l'historique" />
+          <div className={styles.filterRow}>
+            <Switch
+              options={FILTER_OPTIONS}
+              value={filter}
+              onChange={(value) => {
+                setFilter(value)
+                setTagFilter('')
+              }}
+              label="Filtrer l'historique"
+            />
+
+            {availableTags.length > 0 && (
+              <select
+                className={`${fieldStyles.control} ${styles.tagFilterSelect}`}
+                aria-label="Filtrer par tag"
+                value={activeTagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+              >
+                <option value="">Tous les tags</option>
+                {availableTags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
 
           {state.kind === 'loading' && (
             <div className={styles.list} aria-hidden="true">
@@ -224,9 +250,15 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
             </div>
           )}
 
-          {state.kind === 'loaded' && state.files.length > 0 && (
+          {state.kind === 'loaded' && state.files.length > 0 && visibleFiles.length === 0 && (
+            <div className={styles.empty}>
+              <p>Aucun fichier avec le tag « {activeTagFilter} ».</p>
+            </div>
+          )}
+
+          {state.kind === 'loaded' && visibleFiles.length > 0 && (
             <ul className={styles.list}>
-              {state.files.map((file) => (
+              {visibleFiles.map((file) => (
                 <li key={file.id} className={styles.row}>
                   <div className={styles.rowLeft}>
                     <span className={styles.rowIcon}>

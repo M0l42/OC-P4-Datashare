@@ -590,7 +590,10 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
         <div className={styles.configForm}>
           <div className={styles.configFileRow}>
             <FileInfo name={status.file.name} size={formatFileSize(status.file.size)} />
-            <Button variant="secondary" size="small" onClick={() => inputRef.current?.click()}>
+            {/* Medium, not Small: this row has no desktop/mobile split (unlike
+                Mon espace's row actions), and Small sits under the 44px
+                mobile touch-target minimum (UI-04). */}
+            <Button variant="secondary" onClick={() => inputRef.current?.click()}>
               Changer
             </Button>
           </div>
