@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useFocusOnChange } from '../lib/useFocusOnChange'
 import { Button, Callout, FileInfo, Input, PageShell } from './ds'
 import { DownloadIcon } from './icons'
 import styles from './RecipientPage.module.css'
@@ -30,6 +31,12 @@ export function RecipientPage({ token }: RecipientPageProps) {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const passwordErrorRef = useRef<HTMLDivElement>(null);
+
+  // Keyed on `attempts`, not `passwordError`: the message text is identical
+  // across repeated wrong attempts, so keying on the message alone would
+  // only move focus on the first failure.
+  useFocusOnChange(passwordErrorRef, passwordError ? attempts : null);
 
   const load = useCallback(async () => {
     try {
@@ -179,7 +186,7 @@ export function RecipientPage({ token }: RecipientPageProps) {
         <form onSubmit={handlePasswordSubmit} className={styles.form}>
           <Callout variant={expiryTone(meta.expiresAt)}>{expiryMessage(meta.expiresAt)}</Callout>
           {passwordError && (
-            <Callout variant="error">
+            <Callout ref={passwordErrorRef} variant="error">
               {passwordError} Tentative {attempts}.
             </Callout>
           )}

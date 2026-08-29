@@ -249,13 +249,13 @@ Trois niveaux : unitaire (Jest), intégration (Supertest sur une base PostgreSQL
 
 Le plan de test détaillé, par page et par interaction, est dans `docs/test-plan.md`.
 
-> **À COMPLÉTER** — rapport de couverture, capture d'écran, résultats d'exécution.
+Rapport de couverture, décompte par niveau et résultats d'exécution : voir `TESTING.md` à la racine. Résultat courant : 96,42 % de lignes (objectif 70 %), 121 tests unitaires, 34 tests d'intégration, 3 scénarios Cypress.
 
 ### SECURITY.md
 
-Scan de vulnérabilités des dépendances (`npm audit`), chaque résultat documenté comme corrigé, accepté ou ignoré, avec la raison. Y figureront aussi les limites assumées de la section 5 et le compromis de minimisation des données des lignes fantômes.
+Scan de vulnérabilités des dépendances (`npm audit`), chaque résultat documenté comme corrigé, accepté ou ignoré, avec la raison. Y figurent aussi les limites assumées de la section 5 et le compromis de minimisation des données des lignes fantômes.
 
-> **À COMPLÉTER** — sortie du scan et analyse des décisions.
+Résultat courant (QA-05) : 3 vulnérabilités hautes back-end, toutes le même CVE (`deepmerge-ts`), atteignables uniquement via le CLI `prisma` en développement — jamais en production. Décision : acceptées, raison détaillée dans `SECURITY.md`. Front : 0 vulnérabilité.
 
 ### PERF.md
 
@@ -266,19 +266,15 @@ Deux mesures distinctes, pour une raison précise :
 
 Charger l'endpoint d'initiation aurait mesuré un HMAC et un `INSERT` : c'est justement parce que l'API ne touche pas aux octets que le débit ne s'y mesure pas.
 
-Résultats, méthode et un correctif nginx trouvé en cours de mesure (SOC-06) : voir `PERF.md` à la racine.
+Résultats, méthode et un correctif nginx trouvé en cours de mesure (SOC-06) : voir `PERF.md` à la racine, §1 et §2.
 
-Budget de performance côté front (poids du bundle, métriques navigateur) : hors périmètre de QA-06, non couvert.
+Budget de performance côté front (poids du bundle, score Lighthouse, QA-07) : `PERF.md` §3. Bundle JS conforme au budget fixé (130,8 Ko gzip < 200 Ko) ; accessibilité Lighthouse 100 après le correctif de contraste de QA-09.
 
-Coût d'egress de la validation à documenter, avec la distinction qui compte : le contrôle des octets magiques est une **lecture par plage** de quelques dizaines d'octets, quelle que soit la taille du fichier ; seul le scan ClamAV extrait l'objet entier, et uniquement sous le plafond de 50 Mo. Un fichier de 1 Go coûte donc 64 octets d'egress de validation, pas 1 Go.
-
-> **À COMPLÉTER** — résultats k6, mesure du téléversement, budget de bundle, captures de logs.
+Coût d'egress de la validation, la distinction qui compte : le contrôle des octets magiques est une **lecture par plage** de quelques dizaines d'octets, quelle que soit la taille du fichier ; seul le scan ClamAV extrait l'objet entier, et uniquement sous le plafond de 50 Mo. Un fichier de 1 Go coûte donc 64 octets d'egress de validation, pas 1 Go.
 
 ### MAINTENANCE.md
 
-Procédures de mise à jour des dépendances, fréquence, risques. À documenter également : les quatre tâches planifiées et leurs constantes (purge à expiration quotidienne, purge des lignes fantômes à 7 jours, reaper des uploads abandonnés à 48 heures, remise en file des scans bloqués à 15 minutes), parce que ce sont les valeurs qu'un futur mainteneur devra comprendre avant d'y toucher.
-
-> **À COMPLÉTER** — procédures rédigées après stabilisation des dépendances.
+Procédures de mise à jour des dépendances, fréquence, risques. Documente aussi les quatre tâches planifiées et leurs constantes (purge à expiration quotidienne, purge des lignes fantômes à 7 jours, reaper des uploads abandonnés à 48 heures, remise en file des scans bloqués à 15 minutes), la sauvegarde/restauration des volumes, et un tableau de diagnostics courants. Voir `MAINTENANCE.md` à la racine.
 
 ---
 

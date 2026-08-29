@@ -268,6 +268,16 @@ Both the uploader's post-upload wait and the recipient's `scanning` state **poll
 - Touch targets ≥ 44 px on mobile; the Small button is 32 px, so use Medium on 393 px.
 - Contrast: verify the Callout text against its tinted background and the Tertiary button against white. Lighthouse accessibility ≥ 90 as the committed number.
 
+**Status (QA-09, 2026-08-29)** — audited against this checklist item by item, against the actual Lighthouse run in `PERF.md` §3 plus manual review:
+
+- Visible labels, the file-input keyboard fallback, and `aria-live`/`role="status"`/`role="alert"` on progress and status messages were already correctly built — verified, not touched.
+- Touch targets were already correct too, and better than the checklist assumed: mobile doesn't shrink the desktop buttons, it swaps them for a dedicated 44×44 px kebab button (`MonEspace.module.css`) below 900 px.
+- **Focus management was genuinely missing** and has been added: `lib/useDialogFocus.ts` (Escape to close, Tab trapped inside, focus restored to the trigger on close) now backs `ConfirmDeleteDialog`, the Mon espace nav drawer, and `FileActionsSheet` — three components that had independently duplicated an incomplete version of the same pattern (Escape-only, no trap, no restore). `lib/useFocusOnChange.ts` moves focus to the error Callout itself on `LoginForm`, `RegisterForm`, `Uploader`, and the wrong-password state in `RecipientPage` — `role="alert"` already got these announced to screen readers, but a sighted keyboard user still needs focus to land there rather than announce-and-hope.
+- **Contrast was genuinely failing**, on more than the checklist named: Lighthouse caught the primary and tertiary buttons (measured ~3.7:1 and ~2.9:1 against a 4.5:1 requirement); manually checking the rest of the checklist's own contrast item turned up the alert Callout too (~4.28:1). All three tokens (`--ds-btn-primary-fg`, `--ds-btn-secondary-fg`, `--ds-btn-tertiary-fg`, `--ds-callout-alert-fg`) darkened in `styles/tokens.css`, same hue, now 4.6–5.9:1.
+- **Lighthouse accessibility: 92 → 100** after the contrast fix (`PERF.md` §3 has the full run). Committed number was ≥ 90; both the before and after clear it, but 100 is the honest current state.
+
+Not covered here (RecipientPage's full-page states — invalid link, expired, generic error, timed out — render as the entire page content on a fresh load, not an interruption to a focused form, so the same focus-redirect treatment doesn't apply the same way; left as-is rather than force-fit).
+
 ### Empty and loading states (absent from the maquettes)
 
 - **Mon espace, zero files** — explain what the space is for, plus the primary action. Not "Aucun fichier". Suggested: "Rien ici pour l'instant. Les fichiers que tu envoies apparaissent ici avec leur lien et leur date d'expiration." + primary button.

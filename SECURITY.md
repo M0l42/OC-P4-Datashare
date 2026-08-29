@@ -166,6 +166,31 @@ L'URL de téléchargement elle-même est signée pour **60 secondes** — consom
 immédiatement par le navigateur, pas de fenêtre d'exploitation prolongée si
 l'URL fuit (log, historique partagé, etc.).
 
+## Scan de dépendances
+
+`npm audit`, back et front, à chaque modification de `package.json` et avant
+chaque livraison. État courant (2026-08-29) :
+
+| Paquet | Sévérité | Chemin | Décision |
+|---|---|---|---|
+| `deepmerge-ts` < 8.0.0 ([GHSA-ggr8-5vv4-36mx](https://github.com/advisories/GHSA-ggr8-5vv4-36mx), épuisement de pile sur un graphe récursif) | Haute (×3, même CVE compté par `npm audit` à chaque niveau de la chaîne) | `prisma` (devDependency, CLI) → `@prisma/config` → `deepmerge-ts` | **Acceptée** |
+
+**Pourquoi acceptée plutôt que corrigée.** `npm ls deepmerge-ts` confirme un
+seul chemin, entièrement dans `prisma`, le CLI utilisé en développement pour
+`generate`/`migrate` — jamais `@prisma/client`, la dépendance réellement
+importée par le code applicatif en production. Le code vulnérable n'est donc
+ni présent ni atteignable dans le conteneur `api` qui tourne réellement ; il
+ne s'exécute que sur la machine d'un développeur, sur un schéma Prisma local
+et fiable, jamais sur une entrée venant d'un utilisateur. Le correctif
+proposé (`npm audit fix --force`) rétrograderait `prisma` vers `6.12.0` —
+un changement cassant pour un outil épinglé et activement utilisé, en échange
+d'une vulnérabilité non atteignable. `npm audit --omit=dev` la fait
+apparaître malgré tout (limite connue de son calcul des devDependencies
+transitives), donc noter ici que c'est délibéré plutôt que de laisser croire
+à une exposition en production.
+
+Front : `npm audit` — **0 vulnérabilité**.
+
 ---
 
 ## À venir (chantiers identifiés, pas encore livrés)

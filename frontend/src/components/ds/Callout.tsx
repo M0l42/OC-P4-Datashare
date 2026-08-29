@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { forwardRef, type ReactNode } from 'react'
 import styles from './Callout.module.css'
 
 export type CalloutVariant = 'info' | 'alert' | 'error'
@@ -44,15 +44,20 @@ const ICONS: Record<CalloutVariant, ReactNode> = {
 
 // The only status-message pattern in the product. `role` separates what
 // interrupts from what merely informs: a screen reader should announce an
-// error, not an expiry reminder.
-export function Callout({ variant, children }: CalloutProps) {
+// error, not an expiry reminder. `tabIndex={-1}` on `error` makes it a valid
+// programmatic focus target — `role="alert"` alone gets it announced, but a
+// sighted keyboard user still needs focus to actually land there (see
+// `useFocusOnChange`, used by every call site that shows one).
+export const Callout = forwardRef<HTMLDivElement, CalloutProps>(function Callout({ variant, children }, ref) {
   return (
     <div
+      ref={ref}
       className={`${styles.callout} ${styles[variant]}`}
       role={variant === 'error' ? 'alert' : 'status'}
+      tabIndex={variant === 'error' ? -1 : undefined}
     >
       {ICONS[variant]}
       <span>{children}</span>
     </div>
   )
-}
+})

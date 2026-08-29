@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { apiPost, ApiError } from '../lib/api'
+import { useFocusOnChange } from '../lib/useFocusOnChange'
 import { Button, Callout, Input, PageShell } from './ds'
 import styles from './LoginForm.module.css'
 
@@ -19,6 +20,9 @@ export function LoginForm({ onLogin, onNavigateRegister }: LoginFormProps) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const errorRef = useRef<HTMLDivElement>(null)
+
+  useFocusOnChange(errorRef, error)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -37,7 +41,11 @@ export function LoginForm({ onLogin, onNavigateRegister }: LoginFormProps) {
   return (
     <PageShell title="Connexion">
       <form onSubmit={handleSubmit} className={styles.form}>
-        {error && <Callout variant="error">{error}</Callout>}
+        {error && (
+          <Callout ref={errorRef} variant="error">
+            {error}
+          </Callout>
+        )}
         <Input
           label="Email"
           type="email"

@@ -3,6 +3,7 @@ import { apiDelete, apiGet, apiPost, ApiError } from '../lib/api'
 import { formatFileSize } from '../lib/format'
 import { md5Hex } from '../lib/md5'
 import { removeResumable, saveResumable, type ResumableUpload } from '../lib/resumeStore'
+import { useFocusOnChange } from '../lib/useFocusOnChange'
 import { Button, Callout, FileInfo, Input, PageShell, Select } from './ds'
 import { CloseIcon, CopyIcon, UploadIcon } from './icons'
 import styles from './Uploader.module.css'
@@ -255,6 +256,9 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
+
+  useFocusOnChange(errorRef, status.kind === 'error' ? status.message : null)
   // "requested" stops the loop; "handled" prevents a second DELETE if cancel
   // is clicked twice, or if an XHR abort and the click overlap.
   const cancelRequestedRef = useRef(false)
@@ -726,7 +730,11 @@ export function Uploader({ token, onUnauthorized, onNavigateHistory, resumeTarge
         </div>
       )}
       {status.kind === 'cancelled' && <Callout variant="alert">Envoi annulé.</Callout>}
-      {status.kind === 'error' && <Callout variant="error">{status.message}</Callout>}
+      {status.kind === 'error' && (
+        <Callout ref={errorRef} variant="error">
+          {status.message}
+        </Callout>
+      )}
     </PageShell>
   )
 }

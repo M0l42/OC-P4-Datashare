@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Callout, Switch, type SwitchOption } from './ds'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { FileActionsSheet } from './FileActionsSheet'
@@ -18,6 +18,7 @@ import { deleteFile, listFiles, type FileHistoryEntry, type HistoryFilter } from
 import { formatFileSize } from '../lib/format'
 import { expiryTone } from '../lib/expiryTone'
 import { listResumables, removeResumable, type ResumableUpload } from '../lib/resumeStore'
+import { useDialogFocus } from '../lib/useDialogFocus'
 import styles from './MonEspace.module.css'
 import fieldStyles from './ds/Field.module.css'
 
@@ -48,15 +49,9 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [resumables, setResumables] = useState<ResumableUpload[]>([])
   const [abandonError, setAbandonError] = useState<string | null>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!drawerOpen) return
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setDrawerOpen(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [drawerOpen])
+  useDialogFocus(drawerRef, drawerOpen, () => setDrawerOpen(false))
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' })
@@ -324,10 +319,12 @@ export function MonEspace({ token, userLabel, onUnauthorized, onNavigateUpload, 
       {drawerOpen && (
         <div className={styles.drawerOverlay} onClick={() => setDrawerOpen(false)}>
           <div
+            ref={drawerRef}
             className={styles.drawer}
             role="dialog"
             aria-modal="true"
             aria-label="Menu"
+            tabIndex={-1}
             onClick={(event) => event.stopPropagation()}
           >
             <div className={styles.drawerHeader}>

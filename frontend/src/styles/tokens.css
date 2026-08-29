@@ -37,17 +37,21 @@
   --ds-gradient-page: linear-gradient(180deg, #ffb88c 0%, #de6262 100%);
 
   /* Button — primary. The fill and border are translucent in Figma (13% and
-   * 50%); at full strength the amber label on amber fill is unreadable. */
+   * 50%); at full strength the amber label on amber fill is unreadable.
+   * The Figma amber (#e27f29 / #ba681f) reads as ~2.9:1 and ~3.7:1 against
+   * their respective backgrounds — under the 4.5:1 WCAG AA text minimum
+   * (caught by Lighthouse, QA-09). Darkened, same hue, kept for primary,
+   * secondary and tertiary so all three still read as one family. */
   --ds-btn-primary-bg: rgba(255, 129, 45, 0.13);
   --ds-btn-primary-border: rgba(205, 94, 20, 0.5);
-  --ds-btn-primary-fg: #ba681f;
+  --ds-btn-primary-fg: #9c5116;
 
   /* Button — secondary */
   --ds-btn-secondary-border: #ffa569;
-  --ds-btn-secondary-fg: #e27f29;
+  --ds-btn-secondary-fg: #9c5116;
 
   /* Button — tertiary (no fill, no border) */
-  --ds-btn-tertiary-fg: #e27f29;
+  --ds-btn-tertiary-fg: #9c5116;
 
   /* Button — dark */
   --ds-btn-dark-bg: #2c2c2c;
@@ -65,7 +69,9 @@
   --ds-callout-info-fg: #2a3f72;
   --ds-callout-alert-bg: #fff5ed;
   --ds-callout-alert-border: #e6cbb5;
-  --ds-callout-alert-fg: #aa642b;
+  /* #aa642b measured at ~4.28:1 against this background — just under the
+   * 4.5:1 WCAG AA text minimum (QA-09). Darkened, same hue. */
+  --ds-callout-alert-fg: #8f5323;
   --ds-callout-error-bg: #ffe2e2;
   --ds-callout-error-border: #e8a6a6;
   --ds-callout-error-fg: #9c3333;
