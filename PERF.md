@@ -12,8 +12,9 @@ ne se mesure pas là. Les deux mesures ci-dessous ciblent donc les deux seuls
 endroits où l'API fait un travail réel : signer un lien de téléchargement, et
 signer 100 URLs de parties à l'initiation d'un envoi.
 
-Le budget de performance côté front (poids du bundle, métriques navigateur) n'est
-pas couvert ici — c'est le périmètre de QA-07, pas de QA-06.
+Le budget de performance côté front (poids du bundle, métriques navigateur,
+QA-07) est couvert en section 3, séparément des deux mesures back-end de
+QA-06 ci-dessous.
 
 ## 1 — Test de charge k6 sur `GET /d/:token`
 
@@ -96,3 +97,56 @@ la durée du transfert, et un worker HTTP occupé de bout en bout — donc une
 mémoire et une durée d'indisponibilité du worker proportionnelles à la taille du
 fichier, là où la mesure ci-dessus est plate quelle que soit cette taille. C'est
 la justification chiffrée, a posteriori, de la décision prise dès la conception.
+
+## 3 — Budget de performance front (QA-07)
+
+**Méthode** : bundle de production réel (`npm run build`, `frontend/dist`),
+servi tel quel par nginx statique — pas le serveur de dev Vite, qui inclut le
+client HMR et du code non minifié. Lighthouse (mode mobile par défaut,
+throttling réseau/CPU simulé) exécuté contre ce bundle.
+
+### Poids du bundle
+
+| Fichier | Brut | Gzip |
+|---|---|---|
+| JS | 445,8 Ko | 130,8 Ko |
+| CSS | 19,2 Ko | 3,8 Ko |
+
+**Budget fixé** : < 200 Ko gzip pour le JS (repère usuel pour un bundle
+initial sans découpage de route sur une SPA de cette taille — pas de
+bibliothèque de routing ni de composants tiers ici, seuls `react` +
+`react-dom`). **Résultat : conforme** (130,8 Ko, 35 % de marge).
+
+### Scores Lighthouse
+
+| Catégorie | Score |
+|---|---|
+| Performance | 93–94 |
+| Accessibilité | 100 (92 avant correctif QA-09, voir plus bas) |
+| Bonnes pratiques | 78 |
+| SEO | 90 |
+
+| Métrique | Valeur |
+|---|---|
+| First Contentful Paint | 2,5 s |
+| Largest Contentful Paint | 2,5 s |
+| Total Blocking Time | 0 ms |
+| Cumulative Layout Shift | 0,003 |
+
+**Lecture** : Performance et CLS confirment ce que la taille du bundle laissait
+attendre — pas de JavaScript qui bloque le thread principal (TBT = 0 ms), pas
+de décalage de mise en page. FCP/LCP à 2,5 s reflètent le throttling réseau
+simulé par défaut de Lighthouse (4G lente), pas un problème de l'application.
+
+Les deux causes du score Bonnes pratiques (78) sont attendues en local et hors
+périmètre de QA-07 : absence de HTTPS et de redirection HTTP→HTTPS — ce projet
+n'a jamais prétendu terminer TLS en développement (`docker-compose.yml` sert
+tout en HTTP local), et la terminaison TLS reste un chantier non livré,
+cohérent avec `SECURITY.md`.
+
+Le premier passage Lighthouse (score Accessibilité 92) a révélé un vrai défaut
+de contraste : deux variantes de bouton du design system, plus un troisième
+trouvé en vérifiant manuellement le reste du même audit (le Callout `alert`,
+sous 4,5:1 lui aussi). Corrigé sous QA-09 (`docs/design-decisions.md` a le
+détail du calcul et les valeurs retenues) ; le score ci-dessus (100) est déjà
+celui d'après correctif, pas une projection.

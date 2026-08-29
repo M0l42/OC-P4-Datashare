@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Callout, FileInfo } from './ds'
+import { useDialogFocus } from '../lib/useDialogFocus'
 import styles from './ConfirmDeleteDialog.module.css'
 
 interface ConfirmDeleteDialogProps {
@@ -19,16 +20,11 @@ interface ConfirmDeleteDialogProps {
 export function ConfirmDeleteDialog({ fileName, fileSize, onConfirm, onCancel }: ConfirmDeleteDialogProps) {
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !deleting) {
-        onCancel()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [deleting, onCancel])
+  useDialogFocus(dialogRef, true, () => {
+    if (!deleting) onCancel()
+  })
 
   async function handleConfirm() {
     setDeleting(true)
@@ -44,10 +40,12 @@ export function ConfirmDeleteDialog({ fileName, fileSize, onConfirm, onCancel }:
   return (
     <div className={styles.overlay} onClick={deleting ? undefined : onCancel}>
       <div
+        ref={dialogRef}
         className={styles.dialog}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-delete-title"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <h2 id="confirm-delete-title" className={styles.title}>
