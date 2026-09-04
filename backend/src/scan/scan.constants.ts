@@ -1,11 +1,10 @@
 export const SCAN_QUEUE_NAME = 'file-validation';
 
 // Plafond ClamAV. Au-delà, l'objet n'est jamais entièrement retiré de MinIO :
-// la limite de flux par défaut de clamd est très inférieure à 1 Go, et une
-// lecture complète casserait la propriété « l'API ne touche jamais les
-// octets » à la frontière du worker. Limite assumée, documentée dans
-// SECURITY.md, pas un oubli.
-export const CLAMAV_MAX_SCAN_BYTES = 50 * 1024 * 1024;
+// c'est un choix de coût/latence (voir SECURITY.md), plus la même limite
+// côté clamd (infra/clamav/clamd.conf) — les deux doivent rester alignés,
+// clamd rejetterait silencieusement un flux plus gros sinon.
+export const CLAMAV_MAX_SCAN_BYTES = 1024 * 1024 * 1024;
 
 // Une signature de fichier tient dans les premiers octets. 64 suffit
 // largement pour toutes les signatures du tableau ci-dessous.

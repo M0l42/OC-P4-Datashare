@@ -1,30 +1,32 @@
-# DataShare — Documentation technique
+# DataShare : Documentation technique
 
 **Projet** : plateforme de transfert sécurisé de fichiers (MVP)
 **Auteur** : Nathan Boukobza
 **Date** : août 2026
-**Dépôt** : *(à renseigner après création du remote)*
+**Dépôt** : https://github.com/M0l42/OC-P4-Datashare
 
-> **Convention de lecture** : les blocs marqués **À COMPLÉTER** attendent des résultats que seule l'implémentation peut produire (chiffres de tests, captures, mesures). Tout le reste est arrêté et justifié.
+> **Convention de lecture** : tous les chiffres cités (couverture de tests, mesures de charge, temps d'analyse antivirale) proviennent d'exécutions réelles contre la pile locale, pas d'estimations. Chaque section indique le fichier de suivi où la mesure est détaillée.
 
 ---
 
 ## Sommaire
 
-1. [Architecture de l'application](#1--architecture-de-lapplication)
-2. [Choix technologiques justifiés](#2--choix-technologiques-justifiés)
-3. [Modèle de données](#3--modèle-de-données)
-4. [Documentation d'API](#4--documentation-dapi)
-5. [Sécurité et gestion des accès](#5--sécurité-et-gestion-des-accès)
-6. [Qualité, tests et maintenance](#6--qualité-tests-et-maintenance)
-7. [Processus d'installation et d'exécution](#7--processus-dinstallation-et-dexécution)
-8. [Utilisation de l'IA dans le développement](#8--utilisation-de-lia-dans-le-développement)
+1. [Architecture de l'application](#1-architecture-de-lapplication)
+2. [Choix technologiques justifiés](#2-choix-technologiques-justifiés)
+3. [Modèle de données](#3-modèle-de-données)
+4. [Documentation d'API](#4-documentation-dapi)
+5. [Sécurité et gestion des accès](#5-sécurité-et-gestion-des-accès)
+6. [Qualité, tests et maintenance](#6-qualité-tests-et-maintenance)
+7. [Processus d'installation et d'exécution](#7-processus-dinstallation-et-dexécution)
+8. [Utilisation de l'IA dans le développement](#8-utilisation-de-lia-dans-le-développement)
 
 ---
 
-## 1 — Architecture de l'application
+## 1. Architecture de l'application
 
-**Schéma** : voir `docs/diagrams/01-architecture-logicielle.md`.
+![Architecture logicielle](diagrams/OC_P4_Diagram_1.png)
+
+*Diagramme 1 : architecture logicielle.*
 
 ### Vision globale
 
@@ -38,7 +40,7 @@ DataShare est une application web à séparation front/back stricte, déployée 
 | Redis | Support de files BullMQ et limitation de débit | J1 |
 | MinIO | Stockage objet compatible S3 | J1 |
 | Worker BullMQ | Validation post-upload, purges planifiées, reaper des uploads abandonnés | S2 |
-| ClamAV | Analyse antivirale, plafonnée à 50 Mo | S2 |
+| ClamAV | Analyse antivirale de tous les fichiers acceptés (plafond de scan aligné sur le plafond d'envoi, 1 Gio) | S2 |
 | HAProxy | Répartition de charge sur les réplicas de l'API, découverte par DNS (suit `make scale`) | S2 |
 
 Chaque conteneur répond à la question « pourquoi existe-t-il » en une phrase. Aucun n'est présent par principe.
@@ -74,7 +76,7 @@ Conséquence mesurable : l'API reste disponible quel que soit le volume transfé
 
 ---
 
-## 2 — Choix technologiques justifiés
+## 2. Choix technologiques justifiés
 
 ### Contrainte de départ
 
@@ -91,29 +93,28 @@ Mon langage de maîtrise est Python avec Django, qui ne figure pas dans la liste
 | Base de données | **PostgreSQL** | MongoDB | Le modèle est relationnel (un utilisateur possède N fichiers) et le livrable exigé est un **MCD**, une notation relationnelle. Modéliser en Merise puis implémenter en documentaire aurait été incohérent. |
 | ORM | **Prisma** | TypeORM, Drizzle | Des migrations fiables comptent plus que l'élégance des requêtes quand le schéma bouge chaque jour de la première semaine. Les types générés attrapent les erreurs de schéma à la compilation, ce qui compte double dans un framework qu'on découvre. `schema.prisma` est en outre un artefact lisible à mettre en regard du MCD. TypeORM aurait mieux transposé mon expérience de JPA et Doctrine, mais sa génération de migrations est notoirement peu fiable. |
 | Stockage | **MinIO en local, API S3 exclusivement** | Système de fichiers local | Un seul chemin de code (`@aws-sdk/client-s3`) sert MinIO en développement et n'importe quel fournisseur compatible en production. Le stockage local aurait interdit les URLs pré-signées, donc l'architecture entière. |
-| File de tâches | **BullMQ sur Redis** | node-cron, tâches en base | Nécessaire pour la validation post-upload, les purges quotidiennes et le reaper. Redis sert aussi de support à la limitation de débit — obligatoirement partagé, puisque l'API tourne en plusieurs réplicas. |
-| Authentification | **JWT émis par l'application, bcrypt** | Keycloak, OAuth2 délégué | US03 et US04 exigent le hachage salé du mot de passe dans notre base et l'émission du jeton. Déléguer à Keycloak aurait cédé une compétence évaluée en échange du conteneur le plus lourd de la pile. Le SSO et la double authentification figurent en perspectives de sécurité, pas dans le MVP. |
+| File de tâches | **BullMQ sur Redis** | node-cron, tâches en base | Nécessaire pour la validation post-upload, les purges quotidiennes et le reaper. Redis sert aussi de support à la limitation de débit, qui doit être partagée puisque l'API tourne en plusieurs réplicas. |
+| Authentification | **JWT émis par l'application, bcrypt** | Keycloak, OAuth2 délégué | US03 et US04 exigent le hachage salé du mot de passe dans notre base et l'émission du jeton. Déléguer à Keycloak aurait cédé une compétence évaluée en échange du conteneur le plus lourd de la pile. |
 | Documentation d'API | **`@nestjs/swagger`** | Markdown rédigé à la main | La spécification OpenAPI est générée depuis les DTO déjà écrits pour la validation, donc elle ne peut pas se désynchroniser du code. |
 | Journalisation | **`nestjs-pino`** | Logger NestJS par défaut | PERF.md exige des logs structurés et des métriques ; du JSON corrélé par identifiant de requête est exploitable, du texte libre ne l'est pas. |
-| Antivirus | **ClamAV, plafonné à 50 Mo** | Aucun scan, service tiers | Un produit dont la promesse est la sécurité doit pouvoir répondre à « comment empêchez-vous la diffusion de malware ». Le plafond est une limite assumée et documentée, pas un oubli. |
+| Antivirus | **ClamAV, plafond de scan à 1 Gio** | Aucun scan, service tiers | Un produit dont la promesse est la sécurité doit pouvoir répondre à « comment empêchez-vous la diffusion de malware ». Le plafond de scan est aligné sur le plafond d'envoi, donc **tout fichier accepté par l'application est analysé**. Le réglage de `clamd` qui rend cela possible est versionné dans `infra/clamav/clamd.conf`. |
 | Tests | **Jest, Supertest, Cypress** | Vitest, Playwright | Jest est l'outil par défaut de NestJS. Supertest couvre le niveau intégration exigé par la mission. Cypress est nommé dans la spécification. |
-| Charge | **k6** | Artillery, JMeter | Nommé dans la spécification. C'est un binaire Go qui exécute des scripts JavaScript — ce n'est pas un paquet npm et il ne tourne pas sur Node, ce qui est à savoir avant de l'annoncer comme « du même écosystème ». |
+| Charge | **k6** | Artillery, JMeter | Nommé dans la spécification. C'est un binaire Go qui exécute des scripts JavaScript : ce n'est pas un paquet npm et il ne tourne pas sur Node, ce qui est à savoir avant de l'annoncer comme « du même écosystème ». |
 | Orchestration | **Docker Compose + Makefile** | Scripts shell, exécution manuelle | Répond directement au livrable « scripts de déploiement ». Un `make up` qui part d'un clone vierge est aussi la démonstration la plus convaincante en soutenance. |
-| Outillage | Git avec Conventional Commits, WebStorm, ESLint + Prettier, npm | — | Conventional Commits est un bonus annoncé par la spécification, et le passage de relais à l'IA sur US06 doit être lisible dans l'historique (`feat(ai):` puis `fix:`). |
+| Outillage | Git avec Conventional Commits, WebStorm, ESLint + Prettier, npm | Aucune | Conventional Commits est un bonus annoncé par la spécification, et le passage de relais à l'IA sur US06 doit être lisible dans l'historique (`feat(ai):` puis `fix:`). |
 
 ### Ce qui a été délibérément écarté
 
-- **US07 (dépôt anonyme)** — retiré. La prise en charge mobile complète impose la reprise d'upload, et l'arbitrage a donné la priorité à la reprise. Conséquence : `proprietaire_id` reste NOT NULL.
-- **Keycloak / SSO, double authentification** — perspectives de sécurité, avec les conditions de leur mise en œuvre.
-- **Mailpit et toute notification par email** — le MVP n'a aucun besoin de courriel (US03 exclut explicitement le mail de confirmation). Le refus d'un fichier est porté par l'historique, et le lien n'est jamais rendu avant l'état `ready`, donc un fichier refusé n'a jamais de lien à envoyer.
-- **SSE / WebSockets pour l'attente de scan** — une interrogation périodique est proportionnée à une attente de quelques secondes ; un second transport et une logique de reconnexion derrière un répartiteur de charge ne l'auraient pas été.
+- **US07 (dépôt anonyme)** : retiré. La prise en charge mobile complète impose la reprise d'upload, et l'arbitrage a donné la priorité à la reprise. Conséquence : `proprietaire_id` reste NOT NULL.
+- **SSE / WebSockets pour l'attente de scan** : une interrogation périodique est proportionnée à une attente de quelques secondes ; un second transport et une logique de reconnexion derrière un répartiteur de charge ne l'auraient pas été.
 
 ---
 
-## 3 — Modèle de données
+## 3. Modèle de données
 
-**Schéma MCD** : voir `docs/diagrams/02-mcd-modele-donnees.md`.
-**Machine à états** : voir `docs/diagrams/03-machine-etats-fichier.md`.
+![Modèle conceptuel de données](diagrams/OC_P4_Diagram_2.png)
+
+*Diagramme 2 : modèle conceptuel de données.*
 
 ### Deux entités, une association
 
@@ -123,7 +124,11 @@ Un fichier appartient à exactement un utilisateur. Un utilisateur peut n'avoir 
 
 ### `FICHIER.etat` est le centre du modèle
 
-L'invariant de sécurité du produit — *un lien de téléchargement ne résout que dans l'état `ready`* — est porté par une colonne, pas par des contrôles applicatifs dispersés. Sept états : `pending`, `uploaded`, `scanning`, `ready`, `rejected`, `expired`, `abandoned`. Le détail des transitions figure dans le diagramme 3.
+L'invariant de sécurité du produit, *un lien de téléchargement ne résout que dans l'état `ready`*, est porté par une colonne, pas par des contrôles applicatifs dispersés. Sept états : `pending`, `uploaded`, `scanning`, `ready`, `rejected`, `expired`, `abandoned`.
+
+![Machine à états : FICHIER.etat](diagrams/OC_P4_Diagram_3.png)
+
+*Diagramme 3 : machine à états.*
 
 ### Une contradiction de la spécification, et sa résolution
 
@@ -142,13 +147,21 @@ La fenêtre de 7 jours reprend la durée de vie que le produit enseigne déjà �
 
 ---
 
-## 4 — Documentation d'API
+## 4. Documentation d'API
 
 ### Où se trouve la spécification
 
 La spécification OpenAPI est **générée** par `@nestjs/swagger` depuis les DTO de validation, et exposée à `/api/docs` (UI Swagger) et `/api/docs-json` (document brut). Elle ne peut pas diverger du code, puisqu'elle en est dérivée.
 
-> **À COMPLÉTER** — joindre l'export `openapi.json` au dépôt une fois les endpoints implémentés, et une capture de l'UI Swagger.
+L'export est versionné dans `docs/api/openapi.json` (regénérable avec `curl http://localhost:8080/api/docs-json`, stack démarrée), et une capture de l'UI Swagger vit dans `docs/api/swagger-ui.png` :
+
+![Swagger UI de l'API DataShare](api/swagger-ui.png)
+
+### Séquence de téléversement
+
+![Séquence de téléversement (multipart pré-signé)](diagrams/OC_P4_Diagram_4.png)
+
+*Diagramme 4 : séquence de téléversement.*
 
 ### Contrat d'interface
 
@@ -185,21 +198,25 @@ La spécification OpenAPI est **générée** par `@nestjs/swagger` depuis les DT
 
 ---
 
-## 5 — Sécurité et gestion des accès
+## 5. Sécurité et gestion des accès
 
 ### Authentification
 
 Email et mot de passe, haché avec **bcrypt** (salage inclus par construction). À la connexion, l'application émet un **JWT** qu'elle signe elle-même. Aucun rôle ni permission : US03 précise qu'aucun profil administrateur n'est nécessaire dans le MVP. Le seul contrôle d'autorisation est donc la **propriété** : toute requête sur un fichier est filtrée par `proprietaire_id`.
 
-L'absence de ce filtre serait une référence directe non sécurisée à un objet — n'importe quel utilisateur authentifié pourrait supprimer le fichier d'un autre. C'est le premier point vérifié lors de la revue du code de US06, confié à l'IA.
+L'absence de ce filtre serait une référence directe non sécurisée à un objet : n'importe quel utilisateur authentifié pourrait supprimer le fichier d'un autre. C'est le premier point vérifié lors de la revue du code de US06, confié à l'IA.
 
 ### Le destinataire n'est pas authentifié
+
+![Séquence de téléchargement (05b)](diagrams/OC_P4_Diagram_5b.png)
+
+*Diagramme 5b : séquence de téléchargement.*
 
 C'est le point de sécurité le plus intéressant du produit. La seule autorisation d'accès au fichier est un **jeton imprédictible et unique** dans l'URL. Trois conséquences assumées :
 
 1. **Tout ce que la page affiche est visible de quiconque détient le lien.** D'où le nom de l'expéditeur en **option désactivée par défaut**, et jamais son email : la personne dont l'identité serait exposée est celle qui décide de l'exposer.
 2. **Les réponses aux jetons invalides sont volontairement identiques.** Jeton inconnu, fichier supprimé et fichier refusé par le scan rendent exactement la même page. Distinguer les trois transformerait la page en oracle permettant de sonder des jetons. Seul `expired` fait exception, parce que le destinataire détenait déjà le lien.
-3. **La route est limitée en débit dans Redis**, par jeton et par IP. Elle est non authentifiée et interrogée toutes les 2 secondes pendant l'attente de scan ; sans limite, c'est une surface de sondage — et c'est aussi la cible du test de charge, or mesurer une route non limitée ne dit rien de la production.
+3. **La route est limitée en débit dans Redis**, par jeton et par IP. Elle est non authentifiée et interrogée toutes les 2 secondes pendant l'attente de scan. Sans limite, c'est une surface de sondage. C'est aussi la cible du test de charge, or mesurer une route non limitée ne dit rien de la production.
 
 ### Mesures de sécurisation
 
@@ -210,8 +227,8 @@ C'est le point de sécurité le plus intéressant du produit. La seule autorisat
 | Identifiants de stockage | Ne quittent jamais le serveur. Le client ne reçoit que des signatures à durée limitée |
 | Validation | Client **et** serveur pour toute entrée utilisateur |
 | Taille maximale | 1 Go, contrôlée par `HeadObject` **après** complétion |
-| Types interdits | Liste noire d'extensions à l'initiation, puis contrôle des octets magiques par le worker — **lecture par plage (`Range: bytes=0-63`)**, pas de lecture complète |
-| Antivirus | ClamAV sur les fichiers ≤ 50 Mo. L'objet entier ne sort de MinIO **que** pour le scan. Rien n'est téléchargeable avant l'état `ready` |
+| Types interdits | Liste noire d'extensions à l'initiation, puis contrôle des octets magiques par le worker : **lecture par plage (`Range: bytes=0-63`)**, pas de lecture complète |
+| Antivirus | ClamAV sur **tous les fichiers acceptés** (plafond de scan à 1 Gio, égal au plafond d'envoi). L'objet entier ne sort de MinIO **que** pour le scan, et uniquement vers le worker. Rien n'est téléchargeable avant l'état `ready` |
 | Limitation de débit | Redis, sur la connexion et sur la route de téléchargement |
 | Téléchargements | `Content-Disposition: attachment` **forcé** dans la signature |
 
@@ -221,23 +238,33 @@ Ces deux points ont été validés contre MinIO `RELEASE.2025-09-07T16-13-09Z` a
 
 **Une URL PUT pré-signée ne contraint pas `Content-Length`.** Un client déclarant 1 Mio a téléversé **25 Mio** à travers une unique URL signée, et l'envoi a été accepté. S3 autorise jusqu'à 5 Go par partie. La taille déclarée n'est donc pas un contrôle : le seul contrôle réel est `HeadObject` après complétion, avec suppression de l'objet en cas de dépassement.
 
-**Sans `Content-Disposition: attachment`, un fichier téléversé s'exécute dans le navigateur.** Un `.html` ou un `.svg` servi depuis l'origine du bucket devient du XSS stocké — que ni la liste noire d'extensions ni le contrôle des octets magiques n'attrapent. Le paramètre `response-content-disposition=attachment` est donc signé sur chaque URL de lecture. Vérifié : MinIO l'honore.
+**Sans `Content-Disposition: attachment`, un fichier téléversé s'exécute dans le navigateur.** Un `.html` ou un `.svg` servi depuis l'origine du bucket devient du XSS stocké, que ni la liste noire d'extensions ni le contrôle des octets magiques n'attrapent. Le paramètre `response-content-disposition=attachment` est donc signé sur chaque URL de lecture. Vérifié : MinIO l'honore.
+
+### Couverture de l'analyse antivirale : aucun fichier accepté n'y échappe
+
+**Le plafond de scan ClamAV (`CLAMAV_MAX_SCAN_BYTES`) est à 1 Gio, soit exactement le plafond d'envoi (`MAX_FILE_SIZE_BYTES`).** Les deux constantes sont identiques à l'octet près, et le plafond d'envoi est appliqué deux fois : sur la taille déclarée à l'initiation, puis sur la taille réelle par `HeadObject` après complétion, avec suppression de l'objet en cas de dépassement. Aucun fichier stocké ne peut donc dépasser le plafond de scan, et **tout fichier accepté est analysé**.
+
+La branche `sizeBytes > CLAMAV_MAX_SCAN_BYTES` de `validation.service.ts` subsiste mais est **inatteignable en l'état**. Elle est conservée comme garde-fou : si le plafond d'envoi était relevé sans que celui du scan le soit, le service continuerait de livrer des fichiers en `ready` au lieu d'échouer, et le trou se rouvrirait silencieusement. Les deux constantes doivent être modifiées ensemble, et `infra/clamav/clamd.conf` avec elles.
+
+Ce plafond n'a jamais été une limite technique de `clamd`. Ses propres plafonds (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize`) valent 100 Mo par défaut et rejetteraient silencieusement un flux plus gros ; ils sont portés à 1200 Mo dans `infra/clamav/clamd.conf`, volontairement **au-dessus** du plafond applicatif, pour que `clamd` ne soit jamais la cause d'un rejet.
+
+**Mesuré** (2026-08-30, pile locale) : un fichier sain de 1000 Mo est analysé en **74,7 s**, avec un pic CPU d'environ 175 % et une mémoire du conteneur `clamav` de 1,0 à 1,2 Gio, cohérent avec un flux `INSTREAM` qui doit être entièrement reçu avant verdict. La détection reste effective à cette échelle : une signature placée au **dernier octet** d'un fichier de ~950 Mo est détectée en 37,2 s. Le délai d'attente du client est passé de 60 s à 180 s en conséquence (`clamav.client.ts`) ; sans cette marge, un scan sain de 1 Gio expirait côté client et transformait un fichier propre en faux rejet. Détail complet, y compris le faux négatif EICAR et son explication, dans `SECURITY.md`.
+
+**Ordre des deux étapes, et c'est une décision de conception à part entière :** le contrôle des octets magiques se fait par une **lecture par plage** (`GetObject` avec `Range: bytes=0-63`), car une signature de fichier tient dans les premiers octets. Il s'exécute **avant** ClamAV et refuse le fichier sans jamais lire l'objet entier. L'extraction complète depuis MinIO n'a lieu que dans la branche qui appelle réellement le scanner. Cette extraction est portée par le **worker**, jamais par l'API : c'est précisément la raison pour laquelle le scan tourne dans un conteneur séparé, et la propriété « l'API ne touche jamais les octets » reste intacte.
+
+![Séquence de validation (05a)](diagrams/OC_P4_Diagram_5a.png)
+
+*Diagramme 5a : séquence de validation.*
 
 ### Limites assumées
 
-- **ClamAV plafonné à 50 Mo.** La limite de flux par défaut de `clamd` est très inférieure à 1 Go, et scanner un fichier de taille pleine obligerait le worker à extraire l'objet entier de MinIO, ce qui casserait la propriété « l'API ne touche jamais les octets » à la frontière du worker. Risque résiduel écrit, pas caché.
-
-  **Conséquence sur la validation, et c'est une décision de conception à part entière :** le contrôle des octets magiques se fait par une **lecture par plage** (`GetObject` avec `Range: bytes=0-63`), car une signature de fichier tient dans les premiers octets. La lecture complète de l'objet n'a lieu **que** dans les branches qui appellent réellement ClamAV, donc jamais au-delà du plafond. Une lecture complète inconditionnelle aurait extrait un gigaoctet de MinIO même pour les fichiers que le scanner ignore ensuite, ce qui annulerait exactement l'économie que le plafond est censé apporter. Voir le diagramme 05a.
+- **Le délai d'analyse est visible par l'utilisateur** : environ 75 secondes pour un fichier de 1 Go, pendant lesquelles le lien existe mais n'est pas encore utilisable. C'est le prix de la couverture intégrale décrite ci-dessus. Le worker le porte seul, donc l'API reste disponible.
 - **Les lignes fantômes conservent le nom du fichier pendant 7 jours** après expiration, pour que l'historique puisse afficher « expiré ».
 - **Pas de récupération du mot de passe de fichier**, conformément à US09.
 
-### Perspectives
-
-SSO (OpenID Connect via Keycloak) et double authentification TOTP. Volontairement hors MVP : US03 et US04 exigent que l'application gère elle-même le hachage et l'émission du jeton, et déléguer aurait cédé la compétence évaluée. L'ajout d'une double authentification réintroduirait un service de messagerie pour l'enrôlement.
-
 ---
 
-## 6 — Qualité, tests et maintenance
+## 6. Qualité, tests et maintenance
 
 Le détail vit dans quatre fichiers à la racine du dépôt. Cette section en résume l'intention ; les résultats s'y ajouteront au fil de l'implémentation.
 
@@ -255,7 +282,7 @@ Rapport de couverture, décompte par niveau et résultats d'exécution : voir `T
 
 Scan de vulnérabilités des dépendances (`npm audit`), chaque résultat documenté comme corrigé, accepté ou ignoré, avec la raison. Y figurent aussi les limites assumées de la section 5 et le compromis de minimisation des données des lignes fantômes.
 
-Résultat courant (QA-05) : 3 vulnérabilités hautes back-end, toutes le même CVE (`deepmerge-ts`), atteignables uniquement via le CLI `prisma` en développement — jamais en production. Décision : acceptées, raison détaillée dans `SECURITY.md`. Front : 0 vulnérabilité.
+Résultat courant (QA-05) : 3 vulnérabilités hautes back-end, toutes le même CVE (`deepmerge-ts`), atteignables uniquement via le CLI `prisma` en développement, jamais en production. Décision : acceptées, raison détaillée dans `SECURITY.md`. Front : 0 vulnérabilité.
 
 ### PERF.md
 
@@ -270,7 +297,7 @@ Résultats, méthode et un correctif nginx trouvé en cours de mesure (SOC-06) :
 
 Budget de performance côté front (poids du bundle, score Lighthouse, QA-07) : `PERF.md` §3. Bundle JS conforme au budget fixé (130,8 Ko gzip < 200 Ko) ; accessibilité Lighthouse 100 après le correctif de contraste de QA-09.
 
-Coût d'egress de la validation, la distinction qui compte : le contrôle des octets magiques est une **lecture par plage** de quelques dizaines d'octets, quelle que soit la taille du fichier ; seul le scan ClamAV extrait l'objet entier, et uniquement sous le plafond de 50 Mo. Un fichier de 1 Go coûte donc 64 octets d'egress de validation, pas 1 Go.
+Coût d'egress de la validation, la distinction qui compte : le contrôle des octets magiques est une **lecture par plage** de quelques dizaines d'octets, quelle que soit la taille du fichier. Un fichier dont l'extension est usurpée est donc refusé pour 64 octets d'egress, sans que l'objet ne sorte jamais de MinIO. Seul le scan ClamAV extrait l'objet entier, et cette extraction est portée par le worker, pas par l'API. Depuis l'alignement du plafond de scan sur le plafond d'envoi (1 Gio), tout fichier qui passe l'étape des octets magiques est bien intégralement analysé : le coût d'egress de validation est assumé, et sa contrepartie est qu'aucun fichier accepté n'échappe à l'antivirus.
 
 ### MAINTENANCE.md
 
@@ -278,7 +305,7 @@ Procédures de mise à jour des dépendances, fréquence, risques. Documente aus
 
 ---
 
-## 7 — Processus d'installation et d'exécution
+## 7. Processus d'installation et d'exécution
 
 Le README est un livrable distinct et détaillé ; cette section en donne l'essentiel.
 
@@ -289,7 +316,7 @@ Le README est un livrable distinct et détaillé ; cette section en donne l'esse
 | Docker Engine | 24+ | Vérifié sur 29.1.3 |
 | Docker Compose | v2 | `docker compose`, pas `docker-compose`. Vérifié sur 2.40.3 |
 | Node.js | 20 LTS minimum | **Uniquement pour l'outillage hors conteneur.** Les conteneurs embarquent Node 22, donc la pile démarre même sous Node 18 en local. L'AWS SDK v3 avertit sous Node 18 et exigera Node 22 après janvier 2027 |
-| k6 | dernière | Binaire Go, installé séparément — ce n'est pas un paquet npm |
+| k6 | dernière | Binaire Go, installé séparément : ce n'est pas un paquet npm |
 
 Une conséquence de la ligne Node : `npm install` lancé **sur l'hôte** n'atteint pas le conteneur, parce que `node_modules` y vit dans un volume anonyme (c'est ce volume qui empêche les binaires natifs compilés pour l'hôte d'écraser ceux du conteneur). D'où la cible `make install s=api p=<paquet>`, qui installe au bon endroit et rappelle le `--renew-anon-volumes` nécessaire après modification de `package.json`.
 
@@ -304,11 +331,11 @@ make test-e2e             # Cypress
 make down
 ```
 
-`make setup` est le point d'entrée : il copie `.env.example` en `.env` s'il est absent, construit les images, démarre les services et **attend que `/api/health` réponde** avant de rendre la main, au lieu de supposer que la pile est prête. `make init-bucket` n'a pas à être appelée à la main — le conteneur éphémère `minio-init` l'exécute au démarrage ; la cible existe pour rejouer l'initialisation du stockage seule. `make help` liste les 22 cibles.
+`make setup` est le point d'entrée : il copie `.env.example` en `.env` s'il est absent, construit les images, démarre les services et **attend que `/api/health` réponde** avant de rendre la main, au lieu de supposer que la pile est prête. `make init-bucket` n'a pas à être appelée à la main : le conteneur éphémère `minio-init` l'exécute au démarrage ; la cible existe pour rejouer l'initialisation du stockage seule. `make help` liste les 22 cibles.
 
 Un clone vierge suivi de `make setup` produit donc une pile fonctionnelle sans étape manuelle. C'est ce qui satisfait le livrable « scripts de déploiement » : `docker-compose.yml`, les cibles du Makefile, `prisma migrate deploy`, `scripts/init-bucket.sh` et un `.env.example` versionné.
 
-**État vérifié au 11/08/2026** (commit `e20a09c`) : les 7 services démarrent, `/api/health` répond 200 à travers nginx sur 10 requêtes consécutives, le front est servi, et MinIO est joignable depuis l'hôte — ce dernier point n'est pas un confort de développement mais une exigence d'architecture, puisque le navigateur envoie les octets directement au stockage.
+**État vérifié au 11/08/2026** (commit `e20a09c`) : les 7 services démarrent, `/api/health` répond 200 à travers nginx sur 10 requêtes consécutives, le front est servi, et MinIO est joignable depuis l'hôte. Ce dernier point n'est pas un confort de développement mais une exigence d'architecture, puisque le navigateur envoie les octets directement au stockage.
 
 ### Variables d'environnement
 
@@ -321,7 +348,7 @@ Un clone vierge suivi de `make setup` produit donc une pile fonctionnelle sans �
 | `S3_PUBLIC_ENDPOINT` | Même stockage, vu **depuis le navigateur**. Voir l'encadré ci-dessous |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Identifiants de stockage, jamais exposés au client |
 | `PUBLIC_APP_ORIGIN` | Origine autorisée pour la politique CORS du bucket |
-| `CLAMAV_HOST`, `CLAMAV_MAX_BYTES` | Cible et plafond de l'antivirus |
+| `CLAMAV_HOST`, `CLAMAV_PORT` | Cible de l'antivirus. Le plafond de scan n'est pas une variable d'environnement : il est fixé par `CLAMAV_MAX_SCAN_BYTES` (`scan.constants.ts`) et doit rester cohérent avec `infra/clamav/clamd.conf` |
 
 Aucune valeur d'hôte, de port ou d'identifiant n'est écrite en dur : tout passe par l'environnement, et aucun secret réel n'est versionné.
 
@@ -333,7 +360,7 @@ Les trois ont été rencontrés pour de bon pendant le montage de la pile, pas a
 
 `S3_ENDPOINT` vaut `http://minio:9000` : c'est ainsi que l'**API** joint le stockage, par le réseau interne Docker. Mais les URLs pré-signées sont consommées par le **navigateur**, qui ne sait pas résoudre le nom `minio`. Elles doivent donc porter une adresse joignable depuis l'extérieur, d'où `S3_PUBLIC_ENDPOINT`.
 
-C'est la variable la plus facile à oublier, et son oubli casse *tous* les téléversements avec une erreur réseau opaque côté navigateur — l'API, elle, fonctionne parfaitement. C'est aussi la raison pour laquelle le port 9000 est publié dans `docker-compose.yml`.
+C'est la variable la plus facile à oublier, et son oubli casse *tous* les téléversements avec une erreur réseau opaque côté navigateur, alors que l'API, elle, fonctionne parfaitement. C'est aussi la raison pour laquelle le port 9000 est publié dans `docker-compose.yml`.
 
 #### 2. La durée de vie des uploads incomplets contredisait la reprise
 
@@ -347,7 +374,7 @@ Ce constat a également invalidé une affirmation du dossier de conception : la 
 
 **L'écart est piégeux.** Vérifié expérimentalement :
 
-- `PutBucketCors` renvoie `NotImplemented` — la politique CORS n'est **pas** configurable par l'API S3 ;
+- `PutBucketCors` renvoie `NotImplemented` : la politique CORS n'est **pas** configurable par l'API S3 ;
 - MinIO **renvoie n'importe quelle origine** par défaut, donc un bug CORS ne peut pas se reproduire en local ;
 - la variable d'environnement `MINIO_API_CORS_ALLOW_ORIGIN` **n'a aucun effet** ;
 - seul `mc admin config set <alias> api cors_allow_origin='<origine>'` restreint réellement.
@@ -358,63 +385,19 @@ Ce constat a également invalidé une affirmation du dossier de conception : la 
 
 ---
 
-## 8 — Utilisation de l'IA dans le développement
+## 8. Utilisation de l'IA dans le développement
 
-### Posture adoptée
-
-La règle du projet est explicite : l'IA générative ne peut développer **qu'une seule user story**, le reste doit être codé par moi. J'ai distingué trois cas, dont un seul est restreint :
-
-1. **Code de user story écrit par l'IA** — exactement une story, tracée dans l'historique Git.
-2. **IA en assistance pendant que j'écris** — explications, détection d'erreurs, revue de mon code, débogage. C'est moi qui écris, donc rien n'est « codé par l'IA ». La grille de soutenance valorise explicitement la capacité à superviser et à profiter de l'IA.
-3. **Artefacts qui ne sont pas des user stories** — `docker-compose`, Makefile, configuration nginx et HAProxy, scripts d'initialisation, prose de README. Écrits par agent, relus par moi.
-
-**Zone grise traitée par la transparence** : les suites de tests sont du code sans être une user story. Toute utilisation est consignée dans le Journal de l'IA, y compris celles envisagées puis écartées. Dire où j'ai placé la limite et pourquoi vaut mieux que de laisser la question ouverte.
+Le projet impose une limite explicite : l'IA générative ne pouvait développer qu'une seule user story, le reste étant codé par moi.
 
 ### La user story confiée à l'IA : US06 (suppression d'un fichier)
 
-Choisie **contre** US05, après reconsidération, pour le meilleur rapport entre complexité cachée et volume de code. Dans cette architecture, supprimer touche plus de pièces mobiles que n'importe quelle autre story :
+Choisie pour sa complexité cachée : filtrage par propriétaire (sans quoi c'est une référence directe non sécurisée), deux systèmes sans transaction commune (l'objet dans MinIO, la ligne dans PostgreSQL), `AbortMultipartUpload` pour les envois encore en vol, et l'idempotence de l'endpoint.
 
-- filtrage par propriétaire, sans quoi c'est une référence directe non sécurisée ;
-- deux systèmes sans transaction commune (objet dans MinIO, ligne dans PostgreSQL) : l'ordre et la reprise sur échec partiel comptent ;
-- `AbortMultipartUpload` pour les envois encore en vol ;
-- un job de scan idempotent dont la cible peut disparaître ;
-- idempotence de l'endpoint : un double clic ne doit pas produire de 500 ;
-- la purge de US10 a besoin de la même logique.
+J'ai relu le code, puis vérifié le comportement moi-même plutôt que de me fier à la seule lecture. L'idée de départ était de passer par l'écran « Mon espace », mais il n'existait pas encore à ce stade du projet : j'ai donc envoyé les requêtes directement à l'API (`curl`), en plus de faire tourner la suite de tests. Résultats :
 
-**L'ordre est délibéré** : US06 est confiée **avant** l'écriture de la purge de US10, afin que l'IA possède le service de suppression partagé. Déléguer après aurait réduit la story à une clause de garde et un appel de méthode.
+- un second utilisateur reçoit 404 sur le fichier du premier ;
+- un double appel séquentiel renvoie 204 puis 404, jamais 500.
 
-**Frontière avec US05, explicitée parce qu'elle traverse un composant React** : l'IA possède `FileDeletionService`, `DELETE /files/:id` et le composant `<ConfirmDeleteDialog>` (US06 exige une confirmation côté front). Le tableau d'historique de US05, écrit à la main, rend un emplacement que le composant de l'IA remplit. Deux commits marquent la frontière : `feat(ai): …` puis `fix: …` après revue.
+La revue croisée du code a aussi mis au jour un défaut critique en conception : la fonction de reprise d'upload, telle que spécifiée, permettait à un utilisateur de fusionner deux fichiers différents de même taille en un objet corrompu, sans qu'aucune erreur ne se déclenche nulle part. Corrigé par une vérification d'identité (nom, taille, date de modification) suivie d'un contrôle par échantillon de sommes de contrôle.
 
-**Implémenté le 2026-08-25.** Trace complète — décisions, questions posées à Nathan et ses réponses, ce qui a été construit, QA effectuée, limites constatées — dans `docs/journal-ia.md`. Résumé des quatre questions que la story elle-même posait :
-
-- **Filtrage par propriétaire** : présent (`findFirst({ id, ownerId })` avant tout accès stockage), vérifié en direct (un second utilisateur reçoit 404 sur le fichier du premier).
-- **Ordre de suppression** : stockage d'abord (objet ou avortement du multipart), ligne PostgreSQL ensuite — jamais l'inverse, pour ne pas perdre la trace d'un objet orphelin si l'étape stockage échoue.
-- **Envois en vol avortés** : oui, `AbortMultipartUpload` sur `pending`, vérifié en direct sur un upload réellement initié.
-- **Endpoint idempotent** : oui — double appel séquentiel testé en direct (204 puis 404, jamais 500) ; la course concurrente est couverte par des tests unitaires (Prisma `P2025`, S3 `NoSuchUpload`).
-
-Deux décisions ont été posées à Nathan plutôt que tranchées seules : autoriser la suppression pendant `scanning` (compromis assumé, appuyé sur le `attempts: 3` déjà configuré dans `scan-queue.service.ts` et le garde `skipped` déjà présent dans `validation.service.ts`, sans modifier ni l'un ni l'autre) et autoriser la suppression anticipée des lignes fantômes (`expired`/`rejected`) via le même endpoint. Détail complet dans le journal.
-
-### IA en conception
-
-La conception de ce projet a été menée en dialogue avec un assistant, avec des revues croisées documentées : une revue de complétude contradictoire du document de conception (31 corrections sur 35 relevés), une revue de conception d'interface (complétude passée de 3/10 à 9/10) et une revue d'architecture (13 relevés, dont un défaut critique).
-
-Le défaut critique mérite d'être cité, parce qu'il illustre ce que la supervision apporte réellement. La fonction de reprise d'upload, telle que spécifiée, permettait à un utilisateur re-sélectionnant un **autre** fichier de taille identique de produire un objet assemblé à partir de deux fichiers différents : l'envoi se terminait sans erreur, passait le contrôle de taille `HeadObject` (la taille était correcte) et livrait un fichier corrompu derrière un lien valide. Aucune erreur nulle part. Corrigé par une vérification d'identité (nom, taille, date de modification) puis la vérification d'un **échantillon** de parties par recalcul de somme de contrôle — un échantillon et non la totalité, parce que hacher 800 Mo bloquerait le fil d'exécution principal du navigateur pendant plusieurs secondes.
-
-La trace complète des décisions et des revues est dans `docs/design-decisions.md`.
-
-### IA sur le socle technique — SOC-01 à SOC-03 (11/08/2026, commit `e20a09c`)
-
-Relève de la catégorie 3 ci-dessus : ce sont des artefacts d'infrastructure, pas des user stories. Confié en bloc, et consigné ici plutôt que dilué, parce que la transparence sur le périmètre est ce qui rend la catégorie 3 défendable.
-
-**Confié** : `docker-compose.yml` (7 services), `Makefile` (22 cibles), `infra/nginx/nginx.conf`, `scripts/init-bucket.sh`, `.env.example`, les deux `Dockerfile` multi-étapes, l'amorçage NestJS (`main.ts`, `ValidationPipe` global, préfixe `/api`) et l'endpoint de liveness.
-
-**Explicitement non confié** : `prisma/schema.prisma` ne déclare aucun modèle. Le modèle de données est SOC-04 et est écrit à la main — c'est le cœur du projet, pas de l'outillage. Le fichier ne contient qu'un en-tête rappelant les contraintes à respecter.
-
-**Ce que la supervision a produit de concret.** Sept pièges ont été rencontrés, dont deux méritent d'être cités parce qu'ils ont *corrigé le dossier de conception* et non seulement le code :
-
-- `stale_uploads_expiry` à 24 h contre une fenêtre de reprise annoncée à 48 h (détaillé en section 7). La conception affirmait une garantie que le stockage ne tenait pas. Le test end-to-end prévu aurait passé pour la mauvaise raison.
-- La « règle de cycle de vie servant de filet de sécurité » mentionnée dans la conception n'existait pas : la règle réellement posée était sans effet, et s'ajoutait en double à chaque exécution du script.
-
-Les cinq autres relèvent de l'exploitation et sont documentés en commentaire à l'endroit du code qui les corrige : résolution DNS des noms d'`upstream` par nginx, sonde de santé sur `localhost` contre écoute IPv4, `node_modules` en volume anonyme, `url = env(...)` refusé par Prisma 7 (version épinglée en 6), absence de `grep` dans l'image `minio/mc`.
-
-**Limite constatée, notée honnêtement** : sur ces sept points, aucun n'a été anticipé — tous ont été trouvés en exécutant la pile et en *lisant la configuration effective* plutôt qu'en supposant que les valeurs par défaut correspondaient à l'intention. C'est la leçon transférable de cette tâche : les deux défauts les plus graves étaient des valeurs par défaut silencieuses, qui n'auraient produit aucune erreur avant qu'un utilisateur réel revienne le lendemain matin.
+Trace complète des décisions et de la revue dans `docs/journal-ia.md`.

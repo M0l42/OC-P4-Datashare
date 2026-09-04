@@ -26,7 +26,7 @@ Rangée 2c, données et services :
 - `PostgreSQL` — sous-titre « users, files, tags »
 - `Redis` — sous-titre « files BullMQ · rate limiting »
 - `MinIO` — sous-titre « stockage objet compatible S3 »
-- `ClamAV` — sous-titre « clamd · scan ≤ 50 Mo »
+- `ClamAV` — sous-titre « clamd · scan ≤ 1 Gio »
 
 ### Les liens à tracer, avec leurs étiquettes exactes
 

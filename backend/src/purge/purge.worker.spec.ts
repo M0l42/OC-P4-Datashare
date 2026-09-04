@@ -26,12 +26,19 @@ describe('PurgeWorker', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     WorkerMock = require('bullmq').Worker;
     mockPurgeService = {
-      runDailySweep: jest
-        .fn()
-        .mockResolvedValue({ expired: 1, ghostRowsPurged: 2, abandonedReaped: 3 }),
+      runDailySweep: jest.fn().mockResolvedValue({
+        expired: 1,
+        ghostRowsPurged: 2,
+        abandonedReaped: 3,
+      }),
     };
-    const mockConfig = { get: () => 'redis://redis:6379' } as unknown as ConfigService;
-    worker = new PurgeWorker(mockConfig, mockPurgeService as unknown as PurgeService);
+    const mockConfig = {
+      get: () => 'redis://redis:6379',
+    } as unknown as ConfigService;
+    worker = new PurgeWorker(
+      mockConfig,
+      mockPurgeService as unknown as PurgeService,
+    );
   });
 
   it('listens on PURGE_QUEUE_NAME and runs the daily sweep when a job fires', async () => {
@@ -49,7 +56,11 @@ describe('PurgeWorker', () => {
     const result = await instance.__processor();
 
     expect(mockPurgeService.runDailySweep).toHaveBeenCalled();
-    expect(result).toEqual({ expired: 1, ghostRowsPurged: 2, abandonedReaped: 3 });
+    expect(result).toEqual({
+      expired: 1,
+      ghostRowsPurged: 2,
+      abandonedReaped: 3,
+    });
   });
 
   it('onModuleDestroy closes the underlying worker', async () => {

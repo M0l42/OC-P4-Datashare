@@ -39,7 +39,9 @@ describe('HealthController', () => {
     });
 
     it('throws 503 when the database is unreachable', async () => {
-      mockPrismaService.$queryRaw.mockRejectedValue(new Error('connection refused'));
+      mockPrismaService.$queryRaw.mockRejectedValue(
+        new Error('connection refused'),
+      );
 
       await expect(controller.readiness()).rejects.toThrow(
         ServiceUnavailableException,

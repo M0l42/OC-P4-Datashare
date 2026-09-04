@@ -58,6 +58,7 @@ services:
     restart: unless-stopped
     volumes:
       - clamav_db:/var/lib/clamav
+      - ./infra/clamav/clamd.conf:/etc/clamav/clamd.conf:ro
     healthcheck:
       test: ['CMD', 'clamdcheck.sh']
       interval: 30s
@@ -151,9 +152,9 @@ services:
 
   # Worker de validation (SOC-05). Même image que l'API, point d'entrée
   # différent : ce processus consomme la file BullMQ et n'écoute sur aucun
-  # port. Il est séparé de l'API pour que l'analyse d'un fichier de 50 Mo
-  # n'occupe jamais un worker HTTP, et pour pouvoir le mettre à l'échelle
-  # indépendamment.
+  # port. Il est séparé de l'API pour que l'analyse d'un fichier — jusqu'à
+  # 1 Gio, entièrement extrait de MinIO pour être scanné — n'occupe jamais un
+  # worker HTTP, et pour pouvoir le mettre à l'échelle indépendamment.
   worker:
     build:
       context: ./backend

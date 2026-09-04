@@ -68,7 +68,11 @@ describe('StorageService', () => {
         Promise.resolve(`https://signed.example/${command.input.PartNumber}`),
     );
 
-    const parts = await service.signPartUrls('uploads/f1', 'upload-1', [1, 2, 3]);
+    const parts = await service.signPartUrls(
+      'uploads/f1',
+      'upload-1',
+      [1, 2, 3],
+    );
 
     expect(parts).toEqual([
       { partNumber: 1, url: 'https://signed.example/1' },
@@ -113,7 +117,9 @@ describe('StorageService', () => {
 
   it('getObjectRange requests only the declared byte range', async () => {
     sendSpy.mockResolvedValue({
-      Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([1, 2, 3])) },
+      Body: {
+        transformToByteArray: () => Promise.resolve(new Uint8Array([1, 2, 3])),
+      },
     });
 
     const buffer = await service.getObjectRange('uploads/f1', 63);
@@ -128,7 +134,9 @@ describe('StorageService', () => {
 
   it('getObjectFull returns the whole object as a Buffer', async () => {
     sendSpy.mockResolvedValue({
-      Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([9, 9])) },
+      Body: {
+        transformToByteArray: () => Promise.resolve(new Uint8Array([9, 9])),
+      },
     });
 
     await expect(service.getObjectFull('uploads/f1')).resolves.toEqual(
@@ -162,7 +170,9 @@ describe('StorageService', () => {
   });
 
   it('signDownloadUrl forces attachment disposition and strips quote/CRLF injection from the filename', async () => {
-    (getSignedUrl as jest.Mock).mockResolvedValue('https://signed.example/download');
+    (getSignedUrl as jest.Mock).mockResolvedValue(
+      'https://signed.example/download',
+    );
 
     const url = await service.signDownloadUrl(
       'uploads/f1',

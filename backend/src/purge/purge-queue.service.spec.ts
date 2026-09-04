@@ -23,7 +23,9 @@ describe('PurgeQueueService', () => {
     jest.clearAllMocks();
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     QueueMock = require('bullmq').Queue;
-    const mockConfig = { get: () => 'redis://redis:6379' } as unknown as ConfigService;
+    const mockConfig = {
+      get: () => 'redis://redis:6379',
+    } as unknown as ConfigService;
     service = new PurgeQueueService(mockConfig);
   });
 

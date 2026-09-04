@@ -75,30 +75,69 @@ jamais, sans que personne ne sache pourquoi.
    le fichier est refusé **sans que l'objet soit jamais lu entièrement**.
    Une extension inconnue de la table n'est jamais refusée sur ce critère :
    on ne prétend pas savoir vérifier ce qu'on ne sait pas vérifier.
-2. **ClamAV — objet complet, sous le plafond de 50 Mo uniquement.** La
+2. **ClamAV — objet complet, sous le plafond de 1 Go uniquement.** La
    lecture complète n'a lieu que dans la branche qui appelle réellement le
    scanner.
 
 **Pourquoi cet ordre compte.** Une lecture complète inconditionnelle
-extrairait un gigaoctet de MinIO même pour les fichiers que le scanner
-ignore ensuite, ce qui annulerait exactement l'économie que le plafond
-existe pour produire. Coût réel de validation d'un fichier de 1 Go : 64
-octets, pas 1 Go.
+extrairait l'objet de MinIO même pour les fichiers que le scanner ignore
+ensuite, ce qui annulerait exactement l'économie que le plafond existe pour
+produire. Coût réel de validation d'un fichier de 5 Go : 64 octets, pas 5 Go.
 
 Dans les deux cas de refus, l'objet est supprimé du stockage et
 `storage_key` est mis à `NULL` : la ligne subsiste pour l'historique, mais
 plus rien n'est récupérable.
 
-### Limite assumée : le plafond de 50 Mo
+### Le plafond de scan, et pourquoi il ne laisse plus de trou
 
-Au-delà de 50 Mo, **le fichier passe en `ready` sans analyse antivirale**, et
-c'est écrit ici plutôt que caché. La limite de flux par défaut de `clamd` est
-très inférieure à 1 Go, et scanner un fichier de taille pleine obligerait le
-worker à extraire l'objet entier de MinIO — ce qui casserait la propriété
-« l'API ne touche jamais les octets » à la frontière du worker. Le contrôle
-d'octets magiques, lui, s'applique à **tous** les fichiers quelle que soit
-leur taille. Risque résiduel : un fichier de plus de 50 Mo dont l'extension
-est cohérente avec ses octets n'est pas analysé.
+Le plafond de scan (`CLAMAV_MAX_SCAN_BYTES`) vaut **1 Gio, exactement la même
+valeur que le plafond d'envoi** (`MAX_FILE_SIZE_BYTES`). Les deux constantes
+sont identiques à l'octet près, et le plafond d'envoi est appliqué deux fois :
+sur la taille déclarée à l'initiation, puis sur la taille réelle via
+`HeadObject` après complétion — un objet trop gros est supprimé du stockage et
+la ligne passe en `rejected`.
+
+**Conséquence : aucun fichier stocké ne peut dépasser le plafond de scan, donc
+tout fichier accepté est analysé.** Il n'y a plus de risque résiduel de fichier
+non scanné, là où la version précédente de ce document en documentait un (le
+plafond était alors à 50 Mo).
+
+La branche `sizeBytes > CLAMAV_MAX_SCAN_BYTES` de `validation.service.ts`
+subsiste, mais elle est **inatteignable en l'état**. Elle est conservée
+volontairement, comme garde-fou : si `MAX_FILE_SIZE_BYTES` était un jour relevé
+sans que `CLAMAV_MAX_SCAN_BYTES` le soit, le service continuerait de livrer des
+fichiers en `ready` plutôt que d'échouer — le trou se rouvrirait alors
+silencieusement. **Les deux constantes doivent être modifiées ensemble**, et
+`infra/clamav/clamd.conf` avec elles.
+
+Le contrôle d'octets magiques, lui, s'applique de toute façon à **tous** les
+fichiers quelle que soit leur taille, et s'exécute avant le scan.
+
+Ce plafond n'est pas une limite technique de `clamd` (ses propres limites,
+`StreamMaxLength`/`MaxFileSize`/`MaxScanSize` dans `infra/clamav/clamd.conf`,
+sont réglées à 1200 Mo — au-dessus, pas en dessous, pour ne jamais être la
+cause du rejet) : c'est un choix de coût et de latence pour le worker, qui
+extrait bien l'objet entier de MinIO pour le scanner — cette extraction ne
+casse aucune propriété de l'API elle-même, qui n'y participe jamais ; c'est
+précisément pour ça que le scan tourne dans un conteneur séparé.
+
+**Mesuré, pas supposé** (`docker stats` + `clamdscan --stream` en local,
+2026-08-30) : un fichier sain de 1000 Mo scanne en 74,7 s (pic CPU ~175 %,
+mémoire du conteneur `clamav` ~1,0 à 1,2 Gio pendant le scan — cohérent avec
+un flux INSTREAM qui doit être entièrement reçu avant verdict). Détection
+confirmée fonctionnelle à cette échelle : un fichier de test avec une
+signature à l'octet **final** d'un fichier de ~950 Mo est détecté en 37,2 s.
+(Le premier essai avec le fichier de test EICAR standard en préfixe d'un gros
+fichier donnait un faux négatif — pas un vrai trou de détection : la
+signature EICAR de ClamAV est un hash du fichier entier à 68 octets exacts,
+pas un motif recherché dans le contenu, donc n'importe quel ajout après elle
+la fait échouer à toute taille, y compris 1 Mo. Une signature de test locale
+en recherche de sous-chaîne, elle, détecte correctement.)
+
+Conséquence côté client : `ClamAvClient`'s `SOCKET_TIMEOUT_MS` est passé de
+60 s à 180 s (`backend/src/scan/clamav.client.ts`) — sans cette marge, un
+scan sain de 1 Go aurait expiré côté client avant même que `clamd` ne
+réponde, transformant un fichier propre en faux rejet.
 
 ## Authentification
 

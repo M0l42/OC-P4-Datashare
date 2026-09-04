@@ -28,9 +28,10 @@ Et, sous la séparation d'actes, un septième participant qui n'apparaît que da
 |---|---|---|
 | 1 | Worker → Redis | `dequeue(validation)` |
 | 2 | Worker → PostgreSQL | `UPDATE etat='scanning'` — réclame la ligne |
-| 3 | Worker → MinIO | `GetObject` |
+| 3 | Worker → MinIO | `GetObject` avec `Range: bytes=0-63` — lecture par plage, l'objet ne sort pas |
 | 4 | Worker → Worker | lecture des octets magiques, comparaison avec l'extension déclarée |
-| 5 | Worker → ClamAV | `INSTREAM` (si taille ≤ 50 Mo) |
+| 4b | Worker → MinIO | `GetObject` complet — **uniquement** si les octets magiques passent, donc juste avant le scan |
+| 5 | Worker → ClamAV | `INSTREAM` (si taille ≤ plafond de scan, 1 Gio) |
 | 6 | ClamAV → Worker | `OK` \| `FOUND <signature>` |
 | 7 | Worker → PostgreSQL | `UPDATE etat='ready'` \| `UPDATE etat='rejected'` |
 | 8 | Worker → MinIO | `DeleteObject` — **uniquement si rejected** |
@@ -40,12 +41,12 @@ Et, sous la séparation d'actes, un septième participant qui n'apparaît que da
 `alt` autour des étapes 5–8 :
 - `[octets magiques KO]` → `rejected`, `DeleteObject`, raison « extension usurpée »
 - `[ClamAV FOUND]` → `rejected`, `DeleteObject`, raison « logiciel malveillant détecté »
-- `[taille > 50 Mo]` → **scan ignoré**, `ready`, avec l'annotation ci-dessous
+- `[taille > plafond de scan]` → **scan ignoré**, `ready`, avec l'annotation ci-dessous. Branche à dessiner en gris clair : elle existe dans le code mais n'est plus atteignable
 - `[tout OK]` → `ready`
 
-Annotation encadrée sur la branche « taille > 50 Mo » :
+Annotation encadrée sur la branche « taille > plafond de scan » :
 
-> **Limite assumée, documentée dans SECURITY.md.** La limite de flux par défaut de `clamd` est très en dessous de 1 Go, et scanner un fichier de taille pleine obligerait le worker à retirer l'objet entier de MinIO — ce qui casserait la propriété « l'API ne touche jamais les octets » à la frontière du worker. Le plafond à 50 Mo préserve la machine à états, le test EICAR et le discours de sécurité, tout en gardant la propriété intacte. Le risque résiduel est écrit, pas caché.
+> **Branche inatteignable en l'état, conservée comme garde-fou.** Le plafond de scan (`CLAMAV_MAX_SCAN_BYTES`, 1 Gio) est aligné sur le plafond d'envoi (`MAX_FILE_SIZE_BYTES`, 1 Gio) : aucun fichier accepté par l'application ne peut donc franchir ce seuil, et **tout fichier accepté est analysé**. La branche subsiste pour le cas où le plafond d'envoi serait relevé sans que celui du scan le soit. Les limites propres à `clamd` (`StreamMaxLength`, `MaxFileSize`, `MaxScanSize`) sont réglées à 1200 Mo dans `infra/clamav/clamd.conf`, au-dessus du plafond applicatif, pour que le scanner ne soit jamais la cause d'un rejet. Voir SECURITY.md pour les mesures.
 
 Annotation sur l'étape 2 :
 

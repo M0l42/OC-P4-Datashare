@@ -19,9 +19,7 @@ describe('DownloadController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
-      providers: [
-        { provide: DownloadService, useValue: mockDownloadService },
-      ],
+      providers: [{ provide: DownloadService, useValue: mockDownloadService }],
     }).compile();
 
     controller = module.get<DownloadController>(DownloadController);
@@ -35,10 +33,7 @@ describe('DownloadController', () => {
         downloadUrl: 'https://signed.example/report.pdf',
       });
 
-      const result = await controller.getMetadata(
-        'tok-1',
-        mockRes as never,
-      );
+      const result = await controller.getMetadata('tok-1', mockRes as never);
 
       expect(mockDownloadService.getMetadata).toHaveBeenCalledWith('tok-1');
       expect(mockRes.status).toHaveBeenCalledWith(200);
@@ -56,10 +51,7 @@ describe('DownloadController', () => {
         downloadUrl: undefined,
       });
 
-      const result = await controller.getMetadata(
-        'tok-1',
-        mockRes as never,
-      );
+      const result = await controller.getMetadata('tok-1', mockRes as never);
 
       expect(mockRes.status).toHaveBeenCalledWith(202);
       expect(result.downloadUrl).toBeUndefined();
@@ -74,9 +66,10 @@ describe('DownloadController', () => {
 
       controller.verifyPassword('tok-1', { password: 'secret6' });
 
-      expect(
-        mockDownloadService.verifyPasswordAndGetUrl,
-      ).toHaveBeenCalledWith('tok-1', 'secret6');
+      expect(mockDownloadService.verifyPasswordAndGetUrl).toHaveBeenCalledWith(
+        'tok-1',
+        'secret6',
+      );
     });
   });
 });

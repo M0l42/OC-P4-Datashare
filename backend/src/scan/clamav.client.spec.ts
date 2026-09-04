@@ -4,7 +4,9 @@ import { ClamAvClient } from './clamav.client';
 
 // A fake clamd: real TCP, not a mocked Socket — exercises the actual
 // connect/write/parse path rather than asserting on internals.
-function startFakeClamd(response: string): Promise<{ server: net.Server; port: number }> {
+function startFakeClamd(
+  response: string,
+): Promise<{ server: net.Server; port: number }> {
   return new Promise((resolve) => {
     const server = net.createServer((socket) => {
       socket.end(response);

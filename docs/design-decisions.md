@@ -157,7 +157,7 @@ Deliberately excluded and documented as security roadmap: **Keycloak SSO and TOT
 1. Browser requests an upload. API validates auth, extension, and declared size, calls `CreateMultipartUpload`, writes a `pending` row, returns `uploadId`, `partSize` and pre-signed PUT URLs (TTL 1h).
 2. Browser slices the file and PUTs parts directly to MinIO, retrying failed parts. Parts are sequential in v1; parallelism is a documented next step. Progress is reported from completed parts.
 3. Browser posts part ETags. API calls `CompleteMultipartUpload`, then `HeadObject` to verify actual size against the 1 GB cap (a pre-signed PUT cannot bind `Content-Length`, and S3 permits 5 GB per part, so the declared size alone is not enforcement). Over the cap: delete and reject. Otherwise state → `uploaded`, enqueue validation.
-4. Worker sets `scanning`, then validates in two stages. **Magic bytes via a ranged read** (`GetObject` with `Range: bytes=0-63`) — a file signature fits in the first bytes, so the object is not pulled out of storage for this. **ClamAV on the full object, only in the branches that actually invoke it**, i.e. under the 50 MB cap. Then `ready` or `rejected`; on rejection the object is deleted and the reason is persisted on the row.
+4. Worker sets `scanning`, then validates in two stages. **Magic bytes via a ranged read** (`GetObject` with `Range: bytes=0-63`) — a file signature fits in the first bytes, so the object is not pulled out of storage for this. **ClamAV on the full object, only in the branches that actually invoke it**, i.e. under the scan cap (~~50 MB~~ **1 GiB since 2026-08-30 — see Resolved Decisions**). Then `ready` or `rejected`; on rejection the object is deleted and the reason is persisted on the row.
 
    Corrected 2026-08-11 during the diagram review: an unconditional full `GetObject` would have pulled a gigabyte out of MinIO even for files the scanner then skips, cancelling the egress saving the cap exists to buy. Caught by drawing the sequence, not by reading the prose.
 
@@ -331,7 +331,7 @@ Consequence for the test plan: the "resume after 48 h" E2E case has to assert th
 
 - **Indexes in the first migration:** `(state, expires_at)` for both purge passes, `(state, created_at)` for the reaper. Free now, annoying to retrofit.
 - **Throttle `GET /d/:token` in Redis, per token and per IP.** It is unauthenticated, now polled every 2 s, a token-probing surface, *and* the k6 target — load-testing an unthrottled route produces a number that says nothing about production. Reuses the limiter already needed for login.
-- **Document the ClamAV egress cost in PERF.md:** the worker pulls each object out of MinIO to scan it, bounded at the 50 MB cap.
+- **Document the ClamAV egress cost in PERF.md:** the worker pulls each object out of MinIO to scan it, bounded at the scan cap (~~50 MB~~ **1 GiB since 2026-08-30**, so this cost is now paid on every accepted file that clears the magic-bytes check).
 
 ### Test gaps on the new surface (17, none covered — nothing is built yet)
 
@@ -346,7 +346,13 @@ Four are E2E rather than unit: reload mid-upload → Reprendre, resume after 48 
 Two things that were candidates for cutting were kept, for stated reasons:
 
 - **HAProxy is kept.** Its config is agent-authored, so removing it would have saved review time rather than build time, which was the entire case for removing it.
-- **ClamAV is kept but capped to files under ~50 MB**, with the residual risk documented in SECURITY.md. This is a technical decision, not a scheduling one: clamd's default stream limit sits well below 1 GB, and scanning a full-size file would require the worker to stream the whole object back out of MinIO, which breaks the "the API never touches file bytes" property the architecture is built on. The cap preserves the state machine, the EICAR test and the security narrative while keeping the property intact.
+- ~~**ClamAV is kept but capped to files under ~50 MB**, with the residual risk documented in SECURITY.md. This is a technical decision, not a scheduling one: clamd's default stream limit sits well below 1 GB, and scanning a full-size file would require the worker to stream the whole object back out of MinIO, which breaks the "the API never touches file bytes" property the architecture is built on. The cap preserves the state machine, the EICAR test and the security narrative while keeping the property intact.~~
+
+  **Superseded 2026-08-30 — the scan cap now equals the upload cap (1 GiB), so every accepted file is scanned.** Two parts of the original reasoning turned out to be wrong. First, clamd's stream limit is not a hard technical floor: `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` default to 100 MB but are configurable, and are now set to 1200 MB in `infra/clamav/clamd.conf` — above the app cap, so clamd is never the cause of a rejection. Second, the "API never touches file bytes" property was never actually at stake: the full read is performed by the **worker**, which is a separate container precisely so that it can afford to do this. The API does not participate. What the cap really bought was worker CPU, memory and latency, which is a cost/latency tradeoff rather than an architectural one.
+
+  Measured before committing to it: a clean 1000 MB file scans in 74,7 s (~175 % CPU peak, 1,0–1,2 GiB container memory), and a signature planted at the **final byte** of a ~950 MB file is still detected, in 37,2 s. The client socket timeout moved 60 s → 180 s to match (`clamav.client.ts`); without that, a clean 1 GiB scan timed out client-side and turned a healthy file into a false rejection. Full write-up, including an EICAR false negative and why it is a property of the EICAR signature rather than a detection gap, in SECURITY.md.
+
+  The size-check branch in `validation.service.ts` is retained but is now unreachable, as a guard in case `MAX_FILE_SIZE_BYTES` is ever raised without `CLAMAV_MAX_SCAN_BYTES`.
 
 Trims held in reserve if weeks 1 or 2 run long: 2 Cypress scenarios instead of 3, and dropping tag filtering (already optional per US05).
 

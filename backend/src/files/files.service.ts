@@ -50,8 +50,7 @@ export class FilesService {
     // plain Set would treat them as distinct strings.
     if (
       dto.tags &&
-      new Set(dto.tags.map((tag) => tag.toLowerCase())).size !==
-        dto.tags.length
+      new Set(dto.tags.map((tag) => tag.toLowerCase())).size !== dto.tags.length
     ) {
       throw new BadRequestException('Duplicate tags are not allowed');
     }

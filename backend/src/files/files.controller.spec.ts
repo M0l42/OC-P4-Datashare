@@ -34,25 +34,39 @@ describe('FilesController', () => {
   });
 
   it('initiate delegates to the service with the authenticated owner', () => {
-    const dto = { originalName: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 10 };
-    controller.initiate(req, dto as never);
+    const dto = {
+      originalName: 'report.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 10,
+    };
+    controller.initiate(req, dto);
     expect(mockFilesService.initiateUpload).toHaveBeenCalledWith(ownerId, dto);
   });
 
   it('getParts delegates the owner and file id', () => {
     controller.getParts(req, fileId);
-    expect(mockFilesService.getUploadParts).toHaveBeenCalledWith(ownerId, fileId);
+    expect(mockFilesService.getUploadParts).toHaveBeenCalledWith(
+      ownerId,
+      fileId,
+    );
   });
 
   it('getStatus delegates the owner and file id', () => {
     controller.getStatus(req, fileId);
-    expect(mockFilesService.getUploadStatus).toHaveBeenCalledWith(ownerId, fileId);
+    expect(mockFilesService.getUploadStatus).toHaveBeenCalledWith(
+      ownerId,
+      fileId,
+    );
   });
 
   it('complete delegates the owner, file id and parts', () => {
     const dto = { parts: [{ partNumber: 1, etag: 'etag-1' }] };
-    controller.complete(req, fileId, dto as never);
-    expect(mockFilesService.completeUpload).toHaveBeenCalledWith(ownerId, fileId, dto);
+    controller.complete(req, fileId, dto);
+    expect(mockFilesService.completeUpload).toHaveBeenCalledWith(
+      ownerId,
+      fileId,
+      dto,
+    );
   });
 
   it('abort delegates the owner and file id', () => {

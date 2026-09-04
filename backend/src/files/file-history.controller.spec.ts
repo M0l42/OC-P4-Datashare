@@ -23,18 +23,12 @@ describe('FileHistoryController', () => {
   it('list delegates the owner and the requested filter', () => {
     controller.list(req, { filter: 'active' });
 
-    expect(mockFilesService.listFiles).toHaveBeenCalledWith(
-      ownerId,
-      'active',
-    );
+    expect(mockFilesService.listFiles).toHaveBeenCalledWith(ownerId, 'active');
   });
 
   it('list passes undefined through when no filter is given, letting the service default it', () => {
     controller.list(req, {});
 
-    expect(mockFilesService.listFiles).toHaveBeenCalledWith(
-      ownerId,
-      undefined,
-    );
+    expect(mockFilesService.listFiles).toHaveBeenCalledWith(ownerId, undefined);
   });
 });

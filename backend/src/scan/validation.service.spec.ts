@@ -144,7 +144,7 @@ describe('ValidationService', () => {
       });
     });
 
-    it('skips the scan above the 50 MB cap WITHOUT any full read', async () => {
+    it('skips the scan above CLAMAV_MAX_SCAN_BYTES WITHOUT any full read', async () => {
       mockPrisma.file.findUnique.mockResolvedValue({
         ...baseFile,
         sizeBytes: CLAMAV_MAX_SCAN_BYTES + 1,

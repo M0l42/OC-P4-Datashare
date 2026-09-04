@@ -147,7 +147,7 @@ export class StorageService {
   }
 
   // Lecture complète — réservée aux branches qui appellent réellement ClamAV,
-  // donc jamais au-delà du plafond de 50 Mo. Voir getObjectRange.
+  // donc jamais au-delà du plafond de CLAMAV_MAX_SCAN_BYTES. Voir getObjectRange.
   async getObjectFull(key: string): Promise<Buffer> {
     const result = await this.serverClient.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),

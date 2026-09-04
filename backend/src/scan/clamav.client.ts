@@ -6,7 +6,9 @@ export type ClamAvVerdict =
   { kind: 'clean' } | { kind: 'infected'; signature: string };
 
 const INSTREAM_CHUNK_SIZE = 64 * 1024;
-const SOCKET_TIMEOUT_MS = 60_000;
+// A clean 1 GiB scan measured at ~75s locally (see SECURITY.md) — this
+// needs real headroom above that, not just above a typical small file.
+const SOCKET_TIMEOUT_MS = 180_000;
 
 // Client INSTREAM écrit à la main plutôt qu'une dépendance : le protocole
 // tient en quelques lignes (zINSTREAM\0, puis des morceaux préfixés de leur

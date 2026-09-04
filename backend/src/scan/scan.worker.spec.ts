@@ -35,7 +35,9 @@ describe('ScanWorker', () => {
     };
     mockValidation = { validate: jest.fn() };
     mockQueue = { enqueueValidation: jest.fn() };
-    const mockConfig = { get: () => 'redis://redis:6379' } as unknown as ConfigService;
+    const mockConfig = {
+      get: () => 'redis://redis:6379',
+    } as unknown as ConfigService;
 
     worker = new ScanWorker(
       mockConfig,
@@ -70,7 +72,10 @@ describe('ScanWorker', () => {
 
   describe('requeueStaleScans', () => {
     it('requeues rows stuck in scanning past the staleness threshold', async () => {
-      mockPrisma.file.findMany.mockResolvedValue([{ id: 'file-1' }, { id: 'file-2' }]);
+      mockPrisma.file.findMany.mockResolvedValue([
+        { id: 'file-1' },
+        { id: 'file-2' },
+      ]);
       mockPrisma.file.update.mockResolvedValue({});
 
       const count = await worker.requeueStaleScans();
