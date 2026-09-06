@@ -227,6 +227,8 @@ La spécification laisse quatre user stories optionnelles (US07 à US10). Trois 
 
 Deux entités seulement, et une seule association entre les deux : `UTILISATEUR` (0,N) ── POSSÈDE ── (1,1) `FICHIER`. Un fichier appartient à exactement un utilisateur ; un utilisateur peut n'avoir aucun fichier, ce qui est l'état initial après inscription et correspond à l'écran vide de « Mon espace ».
 
+Le diagramme ci-dessous porte trois annotations sur des choix qui ne se lisent pas d'eux-mêmes dans un schéma Merise classique. `tags` est un tableau `TEXT[]` plutôt qu'une table de jointure : la spécification demande 0 à 30 caractères de texte libre par tag, et le filtrage Tous/Actifs ne porte jamais sur les tags, donc une association n,n n'apporterait rien qu'un tableau ne fait déjà. `cle_stockage` et `mot_de_passe_hash` sont vidés à l'expiration, pas supprimés avec la ligne : c'est la ligne fantôme qui résout la contradiction détaillée plus bas. `jeton_telechargement` est imprévisible et unique, 128 bits tirés d'un générateur cryptographique : c'est la seule autorisation d'accès au fichier pour un destinataire qui ne s'authentifie jamais.
+
 ![Modèle conceptuel de données](diagrams/OC_P4_Diagram_2.png)
 
 *Diagramme 2 : modèle conceptuel de données.*
@@ -270,7 +272,7 @@ L'export est versionné dans `docs/api/openapi.json` (regénérable avec `curl h
 
 ### Séquence de téléversement
 
-Le contrat entre le front et le back pour l'envoi d'un fichier, du `POST /files/uploads` initial jusqu'à la reprise après une coupure : le fragment détaché 4b ci-dessous couvre spécifiquement ce dernier cas.
+Le contrat entre le front et le back pour l'envoi d'un fichier : `POST /files/uploads` initie le multipart et renvoie une URL signée par partie, le navigateur envoie chaque partie directement à MinIO sans repasser par l'API, puis `POST .../complete` déclenche `CompleteMultipartUpload` et un `HeadObject` qui vérifie la taille réelle avant de faire passer l'état à `uploaded`. Le fragment détaché 4b couvre la reprise après une coupure, le cas le plus délicat de cette séquence.
 
 ![Séquence de téléversement (multipart pré-signé)](diagrams/OC_P4_Diagram_4.png)
 
