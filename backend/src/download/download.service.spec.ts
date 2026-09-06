@@ -54,15 +54,16 @@ describe('DownloadService', () => {
   });
 
   describe('getMetadata', () => {
-    it('returns metadata and a download URL when ready with no password', async () => {
+    it('returns metadata without a download URL when ready with no password', async () => {
       mockPrismaService.file.findUnique.mockResolvedValue(baseFile);
 
       const result = await service.getMetadata(token);
 
       expect(result.status).toBe('ready');
-      expect(result.downloadUrl).toBe('https://signed.example/download');
+      expect(result).not.toHaveProperty('downloadUrl');
       expect(result.metadata.passwordRequired).toBe(false);
       expect(result.metadata.senderName).toBeUndefined();
+      expect(mockStorageService.signDownloadUrl).not.toHaveBeenCalled();
     });
 
     it('returns metadata without a download URL when ready with a password', async () => {
@@ -74,7 +75,7 @@ describe('DownloadService', () => {
       const result = await service.getMetadata(token);
 
       expect(result.status).toBe('ready');
-      expect(result.downloadUrl).toBeUndefined();
+      expect(result).not.toHaveProperty('downloadUrl');
       expect(result.metadata.passwordRequired).toBe(true);
       expect(mockStorageService.signDownloadUrl).not.toHaveBeenCalled();
     });
@@ -103,7 +104,7 @@ describe('DownloadService', () => {
       const result = await service.getMetadata(token);
 
       expect(result.status).toBe('scanning');
-      expect(result.downloadUrl).toBeUndefined();
+      expect(result).not.toHaveProperty('downloadUrl');
     });
 
     it('returns a scanning status without a download URL', async () => {
@@ -115,7 +116,7 @@ describe('DownloadService', () => {
       const result = await service.getMetadata(token);
 
       expect(result.status).toBe('scanning');
-      expect(result.downloadUrl).toBeUndefined();
+      expect(result).not.toHaveProperty('downloadUrl');
       expect(mockStorageService.signDownloadUrl).not.toHaveBeenCalled();
     });
 

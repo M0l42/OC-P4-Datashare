@@ -10,37 +10,44 @@ export interface DownloadMetadata {
 }
 
 export type MetadataResult =
-  | { kind: 'ready'; meta: DownloadMetadata; downloadUrl: string }
+  | { kind: 'clickToDownload'; meta: DownloadMetadata }
   | { kind: 'passwordRequired'; meta: DownloadMetadata }
   | { kind: 'scanning'; meta: DownloadMetadata }
   | { kind: 'expired' }
   | { kind: 'invalid' }
 
-export type VerifyResult =
+export type RequestUrlResult =
   | { kind: 'ready'; downloadUrl: string }
   | { kind: 'wrongPassword' }
   | { kind: 'expired' }
   | { kind: 'invalid' }
 
-// Raw fetch instead of the apiGet helper: "still checking" and "password
-// required" return identically shaped bodies and differ only by status code,
-// which apiGet doesn't expose.
+// GET never returns a download URL, with or without a password: the URL is
+// only ever signed behind the explicit click on Télécharger (requestDownloadUrl
+// below), so a link-preview bot or crawler that just loads this page can
+// never walk away with a working download.
 export async function fetchDownloadMetadata(token: string): Promise<MetadataResult> {
   const res = await fetch(`${API_BASE}/d/${encodeURIComponent(token)}`)
   if (res.status === 410) return { kind: 'expired' }
   if (res.status === 404) return { kind: 'invalid' }
 
-  const body = (await res.json()) as DownloadMetadata & { downloadUrl?: string }
+  const body = (await res.json()) as DownloadMetadata
   if (res.status === 202) return { kind: 'scanning', meta: body }
-  if (body.downloadUrl) return { kind: 'ready', meta: body, downloadUrl: body.downloadUrl }
-  return { kind: 'passwordRequired', meta: body }
+  if (body.passwordRequired) return { kind: 'passwordRequired', meta: body }
+  return { kind: 'clickToDownload', meta: body }
 }
 
-export async function verifyDownloadPassword(token: string, password: string): Promise<VerifyResult> {
+// The one call that ever signs a URL. `password` is omitted for a
+// password-less file (click-to-download); the server ignores it either way
+// when the file has no password set.
+export async function requestDownloadUrl(
+  token: string,
+  password?: string,
+): Promise<RequestUrlResult> {
   const res = await fetch(`${API_BASE}/d/${encodeURIComponent(token)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(password ? { password } : {}),
   })
   if (res.status === 401) return { kind: 'wrongPassword' }
   if (res.status === 410) return { kind: 'expired' }

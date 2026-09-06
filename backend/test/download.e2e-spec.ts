@@ -140,16 +140,22 @@ describe('Download (e2e)', () => {
     await app.close();
   });
 
-  it('returns metadata and a working download URL for a ready file with no password', async () => {
+  it('never returns a download URL on GET, with or without a password, only after the POST click', async () => {
     const { downloadToken } = await uploadReadyFile();
 
     const metadata = await request(app.getHttpServer())
       .get(`/d/${downloadToken}`)
       .expect(200);
-    const downloadUrl = (metadata.body as { downloadUrl: string }).downloadUrl;
+    expect(metadata.body).not.toHaveProperty('downloadUrl');
     expect(
       (metadata.body as { passwordRequired: boolean }).passwordRequired,
     ).toBe(false);
+
+    const posted = await request(app.getHttpServer())
+      .post(`/d/${downloadToken}`)
+      .send({})
+      .expect(200);
+    const downloadUrl = (posted.body as { downloadUrl: string }).downloadUrl;
 
     // L'URL porte l'endpoint PUBLIC (S3_PUBLIC_ENDPOINT), que ce conteneur ne
     // peut pas résoudre lui-même (même contrainte que pour l'upload) : on
@@ -173,6 +179,19 @@ describe('Download (e2e)', () => {
       }),
     );
     expect(await object.Body?.transformToString()).toBe('hello world!!');
+  });
+
+  it('never throttles POST on a password-less file: nothing to brute-force', async () => {
+    const { downloadToken } = await uploadReadyFile();
+
+    // 8 > the 6/2min dlTokenPassword limit. All succeed: DownloadThrottlerGuard
+    // skips that counter entirely once it sees the file has no passwordHash.
+    for (let i = 0; i < 8; i++) {
+      await request(app.getHttpServer())
+        .post(`/d/${downloadToken}`)
+        .send({})
+        .expect(200);
+    }
   });
 
   it('includes the sender name only when show_sender is set', async () => {

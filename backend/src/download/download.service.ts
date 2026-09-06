@@ -23,7 +23,7 @@ const RESOLVABLE_STATES: FileState[] = [
   FileState.ready,
 ];
 
-interface FileMetadata {
+export interface FileMetadata {
   originalName: string;
   sizeBytes: number;
   mimeType: string;
@@ -39,10 +39,15 @@ export class DownloadService {
     private readonly storage: StorageService,
   ) {}
 
+  // Ne rend jamais d'URL, avec ou sans mot de passe : un GET ne coûte qu'un
+  // chargement de page, y compris à un robot d'indexation ou un aperçu de
+  // lien (Slack, WhatsApp). Signer ici donnerait une capacité de
+  // téléchargement à quiconque charge la page, sans qu'un humain ait cliqué
+  // sur Télécharger. La signature n'a lieu que dans verifyPasswordAndGetUrl,
+  // sur le POST déclenché par ce clic (diagramme 5b).
   async getMetadata(token: string): Promise<{
     status: 'ready' | 'scanning';
     metadata: FileMetadata;
-    downloadUrl?: string;
   }> {
     const file = await this.resolveToken(token);
 
@@ -53,15 +58,7 @@ export class DownloadService {
       return { status: 'scanning', metadata: this.toMetadata(file) };
     }
 
-    const metadata = this.toMetadata(file);
-    if (!file.passwordHash) {
-      const downloadUrl = await this.storage.signDownloadUrl(
-        file.storageKey!,
-        file.originalName,
-      );
-      return { status: 'ready', metadata, downloadUrl };
-    }
-    return { status: 'ready', metadata };
+    return { status: 'ready', metadata: this.toMetadata(file) };
   }
 
   async verifyPasswordAndGetUrl(

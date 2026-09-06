@@ -3,7 +3,7 @@ import { useFocusOnChange } from '../lib/useFocusOnChange'
 import { Button, Callout, FileInfo, Input, PageShell } from './ds'
 import { DownloadIcon } from './icons'
 import styles from './RecipientPage.module.css'
-import { fetchDownloadMetadata, verifyDownloadPassword, type DownloadMetadata } from '../lib/download'
+import { fetchDownloadMetadata, requestDownloadUrl, type DownloadMetadata } from '../lib/download'
 import { expiryTone } from '../lib/expiryTone'
 import { usePollUntil } from '../lib/usePollUntil'
 import { formatFileSize } from '../lib/format'
@@ -11,6 +11,7 @@ import { formatFileSize } from '../lib/format'
 type Phase =
   | { kind: 'loading' }
   | { kind: 'ready'; meta: DownloadMetadata; downloadUrl: string }
+  | { kind: 'clickToDownload'; meta: DownloadMetadata }
   | { kind: 'passwordRequired'; meta: DownloadMetadata }
   | { kind: 'scanning'; meta: DownloadMetadata }
   | { kind: 'expired' }
@@ -31,6 +32,7 @@ export function RecipientPage({ token }: RecipientPageProps) {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const passwordErrorRef = useRef<HTMLDivElement>(null);
 
   // Keyed on `attempts`, not `passwordError`: the message text is identical
@@ -42,8 +44,8 @@ export function RecipientPage({ token }: RecipientPageProps) {
     try {
       const result = await fetchDownloadMetadata(token);
       switch (result.kind) {
-        case 'ready':
-          setPhase({ kind: 'ready', meta: result.meta, downloadUrl: result.downloadUrl });
+        case 'clickToDownload':
+          setPhase({ kind: 'clickToDownload', meta: result.meta });
           break;
         case 'passwordRequired':
           setPhase({ kind: 'passwordRequired', meta: result.meta });
@@ -85,13 +87,14 @@ export function RecipientPage({ token }: RecipientPageProps) {
     setSubmitting(true);
     setPasswordError(null);
     try {
-      const result = await verifyDownloadPassword(token, password);
+      const result = await requestDownloadUrl(token, password);
       if (result.kind === 'ready') {
         setPhase({ kind: 'ready', meta: phase.meta, downloadUrl: result.downloadUrl });
       } else if (result.kind === 'wrongPassword') {
         setAttempts((n) => n + 1);
-        // Cosmetic only — nothing throttles attempts server-side yet, so a
-        // reload resets this. Don't present it as a lockout.
+        // The message stays generic on purpose: the server-side counter
+        // (dlTokenPassword, 6/2min per token) is the real defense, this is
+        // just feedback. A reload doesn't reset the server-side count.
         setPasswordError('Ce mot de passe est incorrect.');
       } else if (result.kind === 'expired') {
         setPhase({ kind: 'expired' });
@@ -102,6 +105,34 @@ export function RecipientPage({ token }: RecipientPageProps) {
       setPhase({ kind: 'error' });
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // The no-password path: still gated behind an explicit click, same as the
+  // password path above, so a link-preview bot loading this page never gets
+  // a working URL for free. Navigates immediately once the URL comes back,
+  // in the same click — this stays a one-click download for the common
+  // no-password case, the extra request just moves the signature behind
+  // the click instead of behind the page load.
+  async function handleDownloadClick() {
+    if (phase.kind !== 'clickToDownload') {
+      return;
+    }
+    setRequesting(true);
+    try {
+      const result = await requestDownloadUrl(token);
+      if (result.kind === 'ready') {
+        setPhase({ kind: 'ready', meta: phase.meta, downloadUrl: result.downloadUrl });
+        window.location.href = result.downloadUrl;
+      } else if (result.kind === 'expired') {
+        setPhase({ kind: 'expired' });
+      } else {
+        setPhase({ kind: 'invalid' });
+      }
+    } catch {
+      setPhase({ kind: 'error' });
+    } finally {
+      setRequesting(false);
     }
   }
 
@@ -163,6 +194,21 @@ export function RecipientPage({ token }: RecipientPageProps) {
             Ce fichier est en cours de vérification. Réessayez dans quelques instants.
           </Callout>
           <Button variant="primary" fullWidth icon={<DownloadIcon />} disabled>
+            Télécharger
+          </Button>
+        </>
+      )}
+
+      {phase.kind === 'clickToDownload' && (
+        <>
+          <Callout variant={expiryTone(meta.expiresAt)}>{expiryMessage(meta.expiresAt)}</Callout>
+          <Button
+            variant="primary"
+            fullWidth
+            icon={<DownloadIcon />}
+            disabled={requesting}
+            onClick={() => void handleDownloadClick()}
+          >
             Télécharger
           </Button>
         </>
