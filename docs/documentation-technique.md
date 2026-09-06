@@ -64,13 +64,13 @@ Le chemin de validation post-upload (octets magiques, ClamAV) n'est pas une user
 
 ## 1. Architecture de l'application
 
+DataShare est une application web à séparation front/back stricte, déployée comme un ensemble de conteneurs orchestrés par `docker compose`. Le front est une SPA React servie en statique ; le back est une API REST NestJS ; le stockage des fichiers est délégué à un service objet compatible S3. Le schéma ci-dessous pose les briques et les protocoles entre elles.
+
 ![Architecture logicielle](diagrams/OC_P4_Diagram_1.png)
 
 *Diagramme 1 : architecture logicielle.*
 
 ### Vision globale
-
-DataShare est une application web à séparation front/back stricte, déployée comme un ensemble de conteneurs orchestrés par `docker compose`. Le front est une SPA React servie en statique ; le back est une API REST NestJS ; le stockage des fichiers est délégué à un service objet compatible S3.
 
 | Brique | Rôle |
 |---|---|
@@ -145,6 +145,8 @@ Plus `AppController` et `HealthController`, déclarés directement sur `AppModul
 **Deux mécanismes de garde dans tout le code, pas plus** : `JwtAuthGuard` (stratégie Passport JWT), posé au niveau contrôleur sur `FilesController`, `FileDeletionController` et `FileHistoryController`, plus au niveau méthode sur `GET /auth/me` (seule route de `AuthController` qui l'exige) ; `ThrottlerGuard`, posé sur `AuthController` (`register`/`login`), et sa spécialisation `DownloadThrottlerGuard` sur `DownloadController` (voir section 5, le compteur par jeton sur `POST` y est conditionnel au mot de passe du fichier). `DownloadController` et les routes `register`/`login` d'`AuthController` n'ont volontairement aucun `JwtAuthGuard` : ce sont, respectivement, la route non authentifiée par conception (section 5) et les deux points d'entrée qui délivrent un JWT : rien à vérifier avant de l'avoir émis. Aucun intercepteur, pipe ou filtre d'exception personnalisé : la validation passe par le `ValidationPipe` global de Nest (`main.ts`), les erreurs par le filtre d'exception par défaut (forme documentée en section 4).
 
 ### Architecture front-end
+
+React côté navigateur, avec un arbre de composants pensé pour un envoi qui peut durer plusieurs minutes sur une connexion imparfaite : sélection, découpage, reprise, et l'attente de scan côté destinataire vivent chacun dans leur propre composant plutôt que dans un état partagé global.
 
 ![Architecture front-end](diagrams/OC_P4_Diagram_6.png)
 
@@ -223,15 +225,11 @@ La spécification laisse quatre user stories optionnelles (US07 à US10). Trois 
 
 ## 3. Modèle de données
 
+Deux entités seulement, et une seule association entre les deux : `UTILISATEUR` (0,N) ── POSSÈDE ── (1,1) `FICHIER`. Un fichier appartient à exactement un utilisateur ; un utilisateur peut n'avoir aucun fichier, ce qui est l'état initial après inscription et correspond à l'écran vide de « Mon espace ».
+
 ![Modèle conceptuel de données](diagrams/OC_P4_Diagram_2.png)
 
 *Diagramme 2 : modèle conceptuel de données.*
-
-### Deux entités, une association
-
-`UTILISATEUR` (0,N) ── POSSÈDE ── (1,1) `FICHIER`
-
-Un fichier appartient à exactement un utilisateur. Un utilisateur peut n'avoir aucun fichier, ce qui est l'état initial après inscription et correspond à l'écran vide de « Mon espace ».
 
 ### `FICHIER.etat` est le centre du modèle
 
@@ -271,6 +269,8 @@ L'export est versionné dans `docs/api/openapi.json` (regénérable avec `curl h
 ![Swagger UI de l'API DataShare](api/swagger-ui.png)
 
 ### Séquence de téléversement
+
+Le contrat entre le front et le back pour l'envoi d'un fichier, du `POST /files/uploads` initial jusqu'à la reprise après une coupure : le fragment détaché 4b ci-dessous couvre spécifiquement ce dernier cas.
 
 ![Séquence de téléversement (multipart pré-signé)](diagrams/OC_P4_Diagram_4.png)
 
