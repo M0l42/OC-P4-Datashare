@@ -63,12 +63,26 @@ export class FileDeletionService {
         if (!isNoSuchUpload(error)) {
           throw error;
         }
+        // Or CompleteMultipartUpload already succeeded on the S3 side before
+        // the row was updated (e.g. a lost Postgres connection mid-`complete`,
+        // see the fault table in the docs) : the multipart is gone, but the
+        // assembled object is real and orphaned under this key.
+        await this.deleteOrphanedObject(file.storageKey!);
       }
     } else if (file.storageKey) {
       await this.storage.deleteObject(file.storageKey);
     }
 
     await this.deleteRow(fileId);
+  }
+
+  private async deleteOrphanedObject(key: string): Promise<void> {
+    try {
+      await this.storage.headObject(key);
+    } catch {
+      return;
+    }
+    await this.storage.deleteObject(key);
   }
 
   // Row only, never storage. This is the one method US10's ghost-row purge

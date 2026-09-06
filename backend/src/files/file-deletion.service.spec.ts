@@ -17,6 +17,7 @@ describe('FileDeletionService', () => {
   let mockStorageService: {
     abortMultipartUpload: jest.Mock;
     deleteObject: jest.Mock;
+    headObject: jest.Mock;
   };
 
   const ownerId = 'owner-1';
@@ -55,6 +56,9 @@ describe('FileDeletionService', () => {
     mockStorageService = {
       abortMultipartUpload: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined),
+      headObject: jest
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('not found'), { name: 'NotFound' })),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -145,15 +149,33 @@ describe('FileDeletionService', () => {
       expect(mockPrismaService.file.delete).not.toHaveBeenCalled();
     });
 
-    it('swallows a NoSuchUpload race on abort instead of throwing', async () => {
+    it('swallows a NoSuchUpload race on abort instead of throwing, when there is no orphaned object', async () => {
       mockPrismaService.file.findUnique.mockResolvedValue(pendingFile);
       mockStorageService.abortMultipartUpload.mockRejectedValue(
         Object.assign(new Error('gone'), { name: 'NoSuchUpload' }),
       );
+      // headObject rejects (default mock): a concurrent delete aborted it
+      // first, nothing was ever assembled under this key.
 
       await expect(
         service.deleteFileCompletely(fileId),
       ).resolves.toBeUndefined();
+      expect(mockStorageService.deleteObject).not.toHaveBeenCalled();
+      expect(mockPrismaService.file.delete).toHaveBeenCalled();
+    });
+
+    it('deletes the orphaned object on NoSuchUpload when complete had already succeeded on S3', async () => {
+      mockPrismaService.file.findUnique.mockResolvedValue(pendingFile);
+      mockStorageService.abortMultipartUpload.mockRejectedValue(
+        Object.assign(new Error('gone'), { name: 'NoSuchUpload' }),
+      );
+      mockStorageService.headObject.mockResolvedValue({ contentLength: 13 });
+
+      await service.deleteFileCompletely(fileId);
+
+      expect(mockStorageService.deleteObject).toHaveBeenCalledWith(
+        pendingFile.storageKey,
+      );
       expect(mockPrismaService.file.delete).toHaveBeenCalled();
     });
 
