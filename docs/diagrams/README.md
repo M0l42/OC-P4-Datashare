@@ -9,8 +9,9 @@ Un fichier par diagramme. Chaque fichier est une **spécification complète** : 
 | 3 | `03-machine-etats-fichier.md` | 3 + 5 | Machine à états | Paysage |
 | 4 | `04-sequence-televersement.md` | 1 + 4 | Séquence UML | Paysage |
 | 5 | `05-sequence-validation-telechargement.md` | 5 — Sécurité | Séquence UML | Paysage |
+| 6 | `06-architecture-frontend.md` | 1 — Architecture front-end | Boîtes et flux | Portrait |
 
-Les diagrammes 1, 2 et 4 sont exigés explicitement par l'étape 1 de la mission (schéma d'architecture, schéma de BDD de type MCD, contrat d'interface). Les diagrammes 3 et 5 ne sont pas demandés : ils existent parce qu'ils portent les réponses aux deux questions les plus probables de la soutenance, et parce que la machine à états est le centre du modèle de données.
+Les diagrammes 1, 2 et 4 sont exigés explicitement par l'étape 1 de la mission (schéma d'architecture, schéma de BDD de type MCD, contrat d'interface). Les diagrammes 3, 5 et 6 ne sont pas demandés : 3 et 5 existent parce qu'ils portent les réponses aux deux questions les plus probables de la soutenance, et parce que la machine à états est le centre du modèle de données ; 6 comble un trou signalé lors d'une relecture (le dossier ne montrait rien du front).
 
 ## Ordre de production recommandé
 
