@@ -127,10 +127,11 @@ Deliberately excluded and documented as security roadmap: **Keycloak SSO and TOT
 |---|---|---|
 | POST | `/auth/register` | US03. Email unique, password ≥ 8 chars. |
 | POST | `/auth/login` | US04. Returns JWT. Rate-limited via Redis. |
-| POST | `/files/uploads` | US01 initiate. Validates auth, extension, declared size. Returns `uploadId`, `partSize`, pre-signed PUT URLs. |
+| GET | `/auth/me` | Convenience endpoint added during US04 to verify a JWT round-trips through the guard; not part of the original mission contract. |
+| POST | `/files/uploads` | US01 initiate. Validates auth, extension, declared size. Returns `fileId` (our row id — the real S3 multipart uploadId never leaves the server), `partSize`, pre-signed PUT URLs. |
 | GET | `/files/uploads/:id/parts` | `ListParts` plus freshly signed URLs for missing parts. Makes resume possible and covers TTL expiry. |
-| POST | `/files/uploads/:id/complete` | `CompleteMultipartUpload`, `HeadObject` size check, state → `uploaded`, enqueue validation. |
-| DELETE | `/files/uploads/:id` | `AbortMultipartUpload` for an explicit client cancel. |
+| POST | `/files/uploads/:id/complete` | `CompleteMultipartUpload`, `HeadObject` size check. **Built as: state → `ready` directly** (interim rule, see Next Steps #7 — the scanning worker doesn't exist yet); the originally planned `state → uploaded, enqueue validation` path returns once step 10 lands. **The `HeadObject` check enforces the 1 GiB ceiling only, not a comparison against the size declared at initiation** — intentionally out of scope for US01-A, owned by US01-D ("Contrôles de complétion") along with the extension/magic-byte checks. |
+| DELETE | `/files/uploads/:id` | `AbortMultipartUpload` for an explicit client cancel. **Hard-deletes the row** — unlike the reaper's automatic 48 h timeout, which leaves an `abandoned` tombstone (state diagram), an explicit cancel was never shared and has nothing worth preserving. |
 | GET | `/files` | US05 history. Owner-scoped. |
 | DELETE | `/files/:id` | US06. Owner-scoped. **AI-authored story.** |
 | GET | `/d/:token` | US02 metadata before download (name, type, size, expiry). From Postgres, never the bucket. |
@@ -156,7 +157,7 @@ Deliberately excluded and documented as security roadmap: **Keycloak SSO and TOT
 1. Browser requests an upload. API validates auth, extension, and declared size, calls `CreateMultipartUpload`, writes a `pending` row, returns `uploadId`, `partSize` and pre-signed PUT URLs (TTL 1h).
 2. Browser slices the file and PUTs parts directly to MinIO, retrying failed parts. Parts are sequential in v1; parallelism is a documented next step. Progress is reported from completed parts.
 3. Browser posts part ETags. API calls `CompleteMultipartUpload`, then `HeadObject` to verify actual size against the 1 GB cap (a pre-signed PUT cannot bind `Content-Length`, and S3 permits 5 GB per part, so the declared size alone is not enforcement). Over the cap: delete and reject. Otherwise state → `uploaded`, enqueue validation.
-4. Worker sets `scanning`, then validates in two stages. **Magic bytes via a ranged read** (`GetObject` with `Range: bytes=0-63`) — a file signature fits in the first bytes, so the object is not pulled out of storage for this. **ClamAV on the full object, only in the branches that actually invoke it**, i.e. under the 50 MB cap. Then `ready` or `rejected`; on rejection the object is deleted and the reason is persisted on the row.
+4. Worker sets `scanning`, then validates in two stages. **Magic bytes via a ranged read** (`GetObject` with `Range: bytes=0-63`) — a file signature fits in the first bytes, so the object is not pulled out of storage for this. **ClamAV on the full object, only in the branches that actually invoke it**, i.e. under the scan cap (~~50 MB~~ **1 GiB since 2026-08-30 — see Resolved Decisions**). Then `ready` or `rejected`; on rejection the object is deleted and the reason is persisted on the row.
 
    Corrected 2026-08-11 during the diagram review: an unconditional full `GetObject` would have pulled a gigabyte out of MinIO even for files the scanner then skips, cancelling the egress saving the cap exists to buy. Caught by drawing the sequence, not by reading the prose.
 
@@ -267,6 +268,16 @@ Both the uploader's post-upload wait and the recipient's `scanning` state **poll
 - Touch targets ≥ 44 px on mobile; the Small button is 32 px, so use Medium on 393 px.
 - Contrast: verify the Callout text against its tinted background and the Tertiary button against white. Lighthouse accessibility ≥ 90 as the committed number.
 
+**Status (QA-09, 2026-08-29)** — audited against this checklist item by item, against the actual Lighthouse run in `PERF.md` §3 plus manual review:
+
+- Visible labels, the file-input keyboard fallback, and `aria-live`/`role="status"`/`role="alert"` on progress and status messages were already correctly built — verified, not touched.
+- Touch targets were already correct too, and better than the checklist assumed: mobile doesn't shrink the desktop buttons, it swaps them for a dedicated 44×44 px kebab button (`MonEspace.module.css`) below 900 px.
+- **Focus management was genuinely missing** and has been added: `lib/useDialogFocus.ts` (Escape to close, Tab trapped inside, focus restored to the trigger on close) now backs `ConfirmDeleteDialog`, the Mon espace nav drawer, and `FileActionsSheet` — three components that had independently duplicated an incomplete version of the same pattern (Escape-only, no trap, no restore). `lib/useFocusOnChange.ts` moves focus to the error Callout itself on `LoginForm`, `RegisterForm`, `Uploader`, and the wrong-password state in `RecipientPage` — `role="alert"` already got these announced to screen readers, but a sighted keyboard user still needs focus to land there rather than announce-and-hope.
+- **Contrast was genuinely failing**, on more than the checklist named: Lighthouse caught the primary and tertiary buttons (measured ~3.7:1 and ~2.9:1 against a 4.5:1 requirement); manually checking the rest of the checklist's own contrast item turned up the alert Callout too (~4.28:1). All three tokens (`--ds-btn-primary-fg`, `--ds-btn-secondary-fg`, `--ds-btn-tertiary-fg`, `--ds-callout-alert-fg`) darkened in `styles/tokens.css`, same hue, now 4.6–5.9:1.
+- **Lighthouse accessibility: 92 → 100** after the contrast fix (`PERF.md` §3 has the full run). Committed number was ≥ 90; both the before and after clear it, but 100 is the honest current state.
+
+Not covered here (RecipientPage's full-page states — invalid link, expired, generic error, timed out — render as the entire page content on a fresh load, not an interruption to a focused form, so the same focus-redirect treatment doesn't apply the same way; left as-is rather than force-fit).
+
 ### Empty and loading states (absent from the maquettes)
 
 - **Mon espace, zero files** — explain what the space is for, plus the primary action. Not "Aucun fichier". Suggested: "Rien ici pour l'instant. Les fichiers que tu envoies apparaissent ici avec leur lien et leur date d'expiration." + primary button.
@@ -301,7 +312,7 @@ The reaper's job is aborting `pending` multipart uploads; resume's requirement i
 
 Two corrections, both in `scripts/init-bucket.sh`:
 
-- `stale_uploads_expiry` is set to **72 h**, not 48 h. A backstop must fire *after* the primary mechanism, never before; the application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
+- `stale_uploads_expiry` is set to **96 h**, not 48 h or even 72 h. A backstop must fire *after* the primary mechanism with a real margin, not by a hair: the daily 48 h reaper's worst case is a row that crosses 48 h right after the 03:00 sweep, caught only the next day, up to 72 h before real deletion. At 72 h, MinIO's own best case (6 h sweep cycle) lands exactly on that worst case: zero margin. 96 h leaves 24 h of real margin. The application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
 - The "lifecycle rule as backstop" mentioned above **never existed**. The rule the script created was `--expire-delete-marker`, which concerns delete markers on a versioned bucket and was a no-op here — and since `mc ilm rule add` appends rather than replaces, every `make init-bucket` silently added another copy. It is removed; `stale_uploads_expiry` is the only real lever, and the script is now idempotent (verified: 0 rules after two consecutive runs).
 
 Consequence for the test plan: the "resume after 48 h" E2E case has to assert the refusal path *deliberately*, because before this fix it would have passed for the wrong reason.
@@ -320,7 +331,7 @@ Consequence for the test plan: the "resume after 48 h" E2E case has to assert th
 
 - **Indexes in the first migration:** `(state, expires_at)` for both purge passes, `(state, created_at)` for the reaper. Free now, annoying to retrofit.
 - **Throttle `GET /d/:token` in Redis, per token and per IP.** It is unauthenticated, now polled every 2 s, a token-probing surface, *and* the k6 target — load-testing an unthrottled route produces a number that says nothing about production. Reuses the limiter already needed for login.
-- **Document the ClamAV egress cost in PERF.md:** the worker pulls each object out of MinIO to scan it, bounded at the 50 MB cap.
+- **Document the ClamAV egress cost in PERF.md:** the worker pulls each object out of MinIO to scan it, bounded at the scan cap (~~50 MB~~ **1 GiB since 2026-08-30**, so this cost is now paid on every accepted file that clears the magic-bytes check).
 
 ### Test gaps on the new surface (17, none covered — nothing is built yet)
 
@@ -335,7 +346,13 @@ Four are E2E rather than unit: reload mid-upload → Reprendre, resume after 48 
 Two things that were candidates for cutting were kept, for stated reasons:
 
 - **HAProxy is kept.** Its config is agent-authored, so removing it would have saved review time rather than build time, which was the entire case for removing it.
-- **ClamAV is kept but capped to files under ~50 MB**, with the residual risk documented in SECURITY.md. This is a technical decision, not a scheduling one: clamd's default stream limit sits well below 1 GB, and scanning a full-size file would require the worker to stream the whole object back out of MinIO, which breaks the "the API never touches file bytes" property the architecture is built on. The cap preserves the state machine, the EICAR test and the security narrative while keeping the property intact.
+- ~~**ClamAV is kept but capped to files under ~50 MB**, with the residual risk documented in SECURITY.md. This is a technical decision, not a scheduling one: clamd's default stream limit sits well below 1 GB, and scanning a full-size file would require the worker to stream the whole object back out of MinIO, which breaks the "the API never touches file bytes" property the architecture is built on. The cap preserves the state machine, the EICAR test and the security narrative while keeping the property intact.~~
+
+  **Superseded 2026-08-30 — the scan cap now equals the upload cap (1 GiB), so every accepted file is scanned.** Two parts of the original reasoning turned out to be wrong. First, clamd's stream limit is not a hard technical floor: `StreamMaxLength`, `MaxFileSize` and `MaxScanSize` default to 100 MB but are configurable, and are now set to 1200 MB in `infra/clamav/clamd.conf` — above the app cap, so clamd is never the cause of a rejection. Second, the "API never touches file bytes" property was never actually at stake: the full read is performed by the **worker**, which is a separate container precisely so that it can afford to do this. The API does not participate. What the cap really bought was worker CPU, memory and latency, which is a cost/latency tradeoff rather than an architectural one.
+
+  Measured before committing to it: a clean 1000 MB file scans in 74,7 s (~175 % CPU peak, 1,0–1,2 GiB container memory), and a signature planted at the **final byte** of a ~950 MB file is still detected, in 37,2 s. The client socket timeout moved 60 s → 180 s to match (`clamav.client.ts`); without that, a clean 1 GiB scan timed out client-side and turned a healthy file into a false rejection. Full write-up, including an EICAR false negative and why it is a property of the EICAR signature rather than a detection gap, in SECURITY.md.
+
+  The size-check branch in `validation.service.ts` is retained but is now unreachable, as a guard in case `MAX_FILE_SIZE_BYTES` is ever raised without `CLAMAV_MAX_SCAN_BYTES`.
 
 Trims held in reserve if weeks 1 or 2 run long: 2 Cypress scenarios instead of 3, and dropping tag filtering (already optional per US05).
 

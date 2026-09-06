@@ -15,8 +15,8 @@
 **Zone 2 — Périmètre Docker** (cadre en pointillés englobant tout le reste, étiqueté « docker compose »)
 
 Rangée 2a, entrée :
-- `nginx` — sous-titre « reverse proxy · sert le build React · load balancing `upstream` »
-- `HAProxy` — sous-titre « répartition L4 vers N réplicas API » — placé **à droite de nginx**, en gris plus clair, avec la mention « mesure de charge (PERF.md) »
+- `nginx` — sous-titre « reverse proxy · sert le build React · TLS », pas de mention de load balancing : nginx proxifie `/api` vers un unique upstream (HAProxy), il ne répartit rien lui-même. Ses upstreams sont résolus **au démarrage** et mis en cache, ce qui suffit puisqu'il ne pointe jamais que vers HAProxy, une cible qui ne change pas de topologie en cours de session.
+- `HAProxy` — sous-titre « répartition L4 vers N réplicas API · résolveur DNS à chaud », placé **à droite de nginx**, en gris plus clair. C'est HAProxy, pas nginx, qui répartit sur les réplicas de l'API et suit `make scale` sans redémarrage : deux répartiteurs en série, pas un doublon.
 
 Rangée 2b, application :
 - `API NestJS ×3` — dessiner comme **trois rectangles superposés décalés** (effet de pile) pour montrer les réplicas. Sous-titre « REST · JWT · @nestjs/swagger »
@@ -26,7 +26,7 @@ Rangée 2c, données et services :
 - `PostgreSQL` — sous-titre « users, files, tags »
 - `Redis` — sous-titre « files BullMQ · rate limiting »
 - `MinIO` — sous-titre « stockage objet compatible S3 »
-- `ClamAV` — sous-titre « clamd · scan ≤ 50 Mo »
+- `ClamAV` — sous-titre « clamd · scan ≤ 1 Gio »
 
 ### Les liens à tracer, avec leurs étiquettes exactes
 

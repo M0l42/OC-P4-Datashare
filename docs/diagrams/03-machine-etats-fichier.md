@@ -38,8 +38,8 @@ C'est aussi le diagramme à montrer pendant la soutenance quand l'évaluateur de
 | `scanning` | `uploaded` | worker mort | `> 15 min → remise en file` |
 | `ready` | `expired` | tâche planifiée | `expire_le atteint → objet + secrets purgés` |
 | `ready` | *(supprimé)* | US06 | `suppression manuelle par le propriétaire` |
-| `expired` | *(supprimé)* | tâche planifiée | `+ 7 jours → ligne purgée` |
-| `rejected` | *(supprimé)* | tâche planifiée | `+ 7 jours → ligne purgée` |
+| `expired` | *(supprimé)* | tâche planifiée | `+ 7 jours depuis cette transition → ligne purgée` |
+| `rejected` | *(supprimé)* | tâche planifiée | `+ 7 jours depuis cette transition → ligne purgée` |
 
 ---
 
@@ -59,15 +59,15 @@ Encadré relié à `rejected`, `abandoned` et `expired` (et au cas « jeton inco
 
 Exception : `expired` **est** distingué, avec son propre message (« Ce fichier n'est plus disponible en téléchargement car il a expiré. »), parce que le destinataire connaît déjà l'existence du fichier — il en avait le lien.
 
-### Les trois tâches planifiées
+### Les quatre tâches planifiées
 
-Un encadré latéral listant qui déclenche quoi :
+Un encadré latéral listant qui déclenche quoi. Les trois premières sont un seul job BullMQ, exécuté dans le même passage quotidien à 03:00 (`PurgeService.runDailySweep`) ; seule la quatrième est indépendante et horaire :
 
 ```
-Purge à expiration      quotidienne   ready → expired
-Purge des fantômes      quotidienne   expired/rejected + 7 j → ligne supprimée
-Reaper                  horaire       pending > 48 h → abandoned
-Remise en file          horaire       scanning > 15 min → uploaded
+Purge à expiration      quotidienne, 03:00   ready → expired
+Purge des fantômes      quotidienne, 03:00 (même passage)   expired/rejected + 7 j → ligne supprimée
+Reaper                  quotidienne, 03:00 (même passage)   pending > 48 h → abandoned
+Remise en file          horaire   scanning > 15 min → uploaded
 ```
 
 ### La fenêtre de 48 h

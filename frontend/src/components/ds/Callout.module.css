@@ -1,0 +1,33 @@
+.callout {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius);
+  border: 1px solid transparent;
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-small-size);
+  line-height: var(--ds-text-small-line);
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.info {
+  background-color: var(--ds-callout-info-bg);
+  border-color: var(--ds-callout-info-border);
+  color: var(--ds-callout-info-fg);
+}
+
+.alert {
+  background-color: var(--ds-callout-alert-bg);
+  border-color: var(--ds-callout-alert-border);
+  color: var(--ds-callout-alert-fg);
+}
+
+.error {
+  background-color: var(--ds-callout-error-bg);
+  border-color: var(--ds-callout-error-border);
+  color: var(--ds-callout-error-fg);
+}

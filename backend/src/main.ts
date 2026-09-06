@@ -1,9 +1,25 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Logger } from 'nestjs-pino';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
+
+  // CSP désactivée : cette API ne sert aucun HTML (le front est servi par
+  // nginx, séparément), la politique par défaut d'helmet casserait Swagger
+  // UI (script inline) pour un service qui ne rend rien lui-même.
+  app.use(helmet({ contentSecurityPolicy: false }));
+
+  // nginx → HAProxy → API : un seul saut de proxy connu, qui écrit
+  // X-Forwarded-For avec l'IP réelle du client (nginx.conf). Sans ce
+  // réglage, req.ip vaudrait toujours l'adresse interne Docker de HAProxy
+  // pour toutes les requêtes, et la limitation de débit par IP protégerait
+  // tout le monde... ou personne, au même compteur.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   // Validation globale. `whitelist` retire les propriétés non déclarées dans le
   // DTO, `forbidNonWhitelisted` renvoie une 400 si le client en envoie : le
@@ -19,6 +35,20 @@ async function bootstrap() {
 
   // Le préfixe est repris par nginx, qui proxifie /api vers ce service.
   app.setGlobalPrefix('api');
+
+  // setGlobalPrefix ne s'applique pas à SwaggerModule.setup : le préfixe doit
+  // être répété explicitement dans le chemin de montage, sinon l'UI atterrit
+  // sur /docs au lieu de /api/docs.
+  const openApiDocument = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('DataShare API')
+      .setDescription('Contrat OpenAPI généré depuis les DTO de validation.')
+      .setVersion('0.0.1')
+      .addBearerAuth()
+      .build(),
+  );
+  SwaggerModule.setup('api/docs', app, openApiDocument);
 
   // 0.0.0.0 et non localhost : sinon le serveur n'écoute que sur la boucle
   // locale du conteneur et nginx ne peut pas l'atteindre.

@@ -8,6 +8,15 @@ export default defineConfig({
     // nginx ne peut pas l'atteindre.
     host: '0.0.0.0',
     port: 5173,
+    // nginx transmet l'en-tête Host reçu du client, mais toujours en
+    // minuscules (`$host` normalise la casse - comportement nginx, pas un
+    // réglage de ce fichier) ; Vite refuse par défaut tout Host qui n'est pas
+    // localhost/loopback, et la comparaison est sensible à la casse. D'où
+    // l'entrée tout en minuscules ci-dessous, même si le nom de la machine
+    // porte des majuscules (`nathan-MS-7A94`). Sans elle, accéder depuis un
+    // autre appareil du réseau (téléphone, etc.) via le nom d'hôte de la
+    // machine échoue avec « Blocked request. This host is not allowed. ».
+    allowedHosts: ['localhost', 'nathan-ms-7a94'],
     // Le rechargement à chaud doit être joignable depuis le navigateur de
     // l'hôte, qui passe par nginx sur le port 8080. Sans ce bloc, le client HMR
     // tente de se connecter au port interne du conteneur et échoue en silence :

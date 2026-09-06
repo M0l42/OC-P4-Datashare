@@ -1,0 +1,45 @@
+.page {
+  min-height: 100svh;
+  background: var(--ds-gradient-page);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--ds-font-body);
+  color: var(--ds-color-text);
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-4);
+}
+
+.card {
+  background-color: var(--ds-color-surface);
+  border-radius: var(--ds-radius-pill);
+  box-shadow: var(--ds-shadow-200);
+  padding: var(--ds-space-8);
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+}
+
+.title {
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-h1-size);
+  line-height: var(--ds-text-h1-line);
+  font-weight: 700;
+  text-align: center;
+  margin: 0;
+}
+
+.footer {
+  padding: var(--ds-space-4) var(--ds-space-8);
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-text-small-size);
+  color: var(--ds-color-text-on-accent);
+}

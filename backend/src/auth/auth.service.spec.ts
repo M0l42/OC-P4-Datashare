@@ -18,13 +18,13 @@ describe('AuthService', () => {
 
   beforeEach(async () => {
     mockPrismaService = {
-        user: {
-            findUnique: jest.fn(),
-            create: jest.fn(),
-        },
+      user: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+      },
     };
     mockJwtService = {
-        signAsync: jest.fn().mockResolvedValue('fake-jwt-token'),
+      signAsync: jest.fn().mockResolvedValue('fake-jwt-token'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -36,7 +36,6 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
-
   });
 
   it('should be defined', () => {
@@ -71,7 +70,10 @@ describe('AuthService', () => {
       email: 'test@example.com',
       password: '123456',
     };
-    mockPrismaService.user.findUnique.mockResolvedValue({ id: 'whatever', email: dto.email });
+    mockPrismaService.user.findUnique.mockResolvedValue({
+      id: 'whatever',
+      email: dto.email,
+    });
 
     await expect(service.register(dto)).rejects.toThrow('Email already in use');
   });

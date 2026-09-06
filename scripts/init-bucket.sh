@@ -18,7 +18,8 @@
 # │   - Seul `mc admin config set <alias> api cors_allow_origin` restreint   │
 # │     réellement les origines.                                             │
 # │   - `stale_uploads_expiry` vaut 24h par défaut, soit LA MOITIÉ de la      │
-# │     fenêtre de reprise de 48 h annoncée. Voir le bloc plus bas.          │
+# │     fenêtre de reprise de 48 h annoncée. Réglé à 96h ci-dessous, voir le  │
+# │     calcul de marge dans le bloc plus bas.                                │
 # │                                                                          │
 # │  Sans ce script, on développe contre un serveur permissif et on découvre │
 # │  le problème sur le premier bucket réel.                                 │
@@ -61,7 +62,7 @@ mc anonymous set none "${ALIAS}/${S3_BUCKET}" >/dev/null 2>&1 || true
 # MinIO applique le sous-système entier, et le faire en deux commandes fait
 # repasser la clé absente à sa valeur par défaut.
 #
-# stale_uploads_expiry=72h — c'est le réglage important, et son défaut est un
+# stale_uploads_expiry=96h — c'est le réglage important, et son défaut est un
 # piège. MinIO abandonne tout seul les uploads multipart incomplets au bout de
 # 24 H (vérifié : `stale_uploads_expiry=24h` dans la config effective, balayage
 # toutes les 6 h). Or la reprise d'upload est promise sur 48 H (décision D,
@@ -69,15 +70,22 @@ mc anonymous set none "${ALIAS}/${S3_BUCKET}" >/dev/null 2>&1 || true
 # 48 h échoue en `NoSuchUpload` alors que la documentation ET le test E2E
 # affirment qu'elle fonctionne : MinIO aurait purgé les parties avant le reaper.
 #
-# 72 h et non 48 h : un filet de sécurité doit se déclencher APRÈS le mécanisme
-# principal, jamais avant. Le reaper applicatif (48 h, US10) garde l'autorité
-# sur la fenêtre de reprise ; MinIO ne rattrape que les parties orphelines
-# qu'aucune ligne en base ne référence plus.
+# Pourquoi 96 h et pas 72 h (calcul de marge, pas juste "après") : un filet de
+# sécurité doit se déclencher après le mécanisme principal avec une marge
+# réelle, pas de justesse. Le reaper applicatif tourne une fois par jour à
+# 03:00 sur un seuil de 48 h (ABANDONED_UPLOAD_TTL_HOURS) : son pire cas est
+# une ligne qui franchit 48 h juste après le passage de 03:00, rattrapée
+# seulement au passage du lendemain, soit jusqu'à 48 h + 24 h = 72 h avant
+# suppression applicative réelle. MinIO balaie toutes les 6 h : à 72 h, son
+# meilleur cas (72 h pile) touche exactement le pire cas du reaper, marge
+# nulle. À 96 h, le meilleur cas MinIO (96 h) laisse 24 h de marge réelle
+# au-dessus du pire cas du reaper (72 h), et son pire cas (96 h + 6 h = 102 h)
+# reste largement au-delà de tout ce que la reprise annoncée (48 h) exige.
 # ─────────────────────────────────────────────────────────────────────────────
-echo "→ CORS restreint à ${PUBLIC_APP_ORIGIN}, uploads incomplets purgés à 72 h"
+echo "→ CORS restreint à ${PUBLIC_APP_ORIGIN}, uploads incomplets purgés à 96 h"
 mc admin config set "$ALIAS" api \
   cors_allow_origin="$PUBLIC_APP_ORIGIN" \
-  stale_uploads_expiry=72h
+  stale_uploads_expiry=96h
 # La modification de config demande un redémarrage du service pour être prise
 # en compte sur certaines versions.
 mc admin service restart "$ALIAS" >/dev/null 2>&1 || true

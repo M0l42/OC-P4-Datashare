@@ -1,16 +1,14 @@
 # DataShare — pile de développement
 #
-#   Navigateur ──8080──> nginx ──/api──> api ×N ──> postgres
-#        │                  └──/─────> front (Vite)      └──> redis
-#        │                                                └──> minio
-#        └───────9000 (octets, URLs pré-signées)──────────────> minio
+#   Navigateur ──8080──> nginx ──/api──> haproxy ──> api ×N ──> postgres
+#        │                  └──/─────> front (Vite)                └──> redis
+#        │                                                          └──> minio
+#        └───────9000 (octets, URLs pré-signées)────────────────────────> minio
 #
 # Les octets des fichiers ne traversent ni nginx ni l'API : le navigateur parle
 # directement à MinIO. Voir docs/diagrams/OC_P4_Diagram_1.png.
 #
-# Arrivent en semaine 2, pas encore déclarés ici : worker BullMQ, ClamAV
-# (SOC-05) et HAProxy (SOC-06). Chaque conteneur arrive avec la tâche qui le
-# justifie — c'est la décision D7.
+# Chaque conteneur arrive avec la tâche qui le justifie — c'est la décision D7.
 
 name: datashare
 
@@ -50,6 +48,23 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Analyse antivirale (SOC-05). Le conteneur télécharge sa base de signatures
+  # au premier démarrage (plusieurs centaines de Mo) : d'où un `start_period`
+  # très long sur la sonde, et le volume `clamav_db` pour ne pas recommencer à
+  # chaque redémarrage.
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+      - ./infra/clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
 
   minio:
     image: minio/minio:latest
@@ -112,6 +127,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN}
+      # Échappatoire de rate limiting pour `make perf-download` (voir
+      # throttler.module.ts). Vide par défaut : sans valeur dans .env, aucun
+      # en-tête ne peut jamais correspondre, le throttling s'applique toujours.
+      PERF_TEST_SECRET: ${PERF_TEST_SECRET:-}
     volumes:
       - ./backend:/app
       # Volume anonyme : empêche le node_modules de l'hôte (Node 18, binaires
@@ -135,6 +154,49 @@ services:
       retries: 10
       start_period: 30s
 
+  # Worker de validation (SOC-05). Même image que l'API, point d'entrée
+  # différent : ce processus consomme la file BullMQ et n'écoute sur aucun
+  # port. Il est séparé de l'API pour que l'analyse d'un fichier — jusqu'à
+  # 1 Gio, entièrement extrait de MinIO pour être scanné — n'occupe jamais un
+  # worker HTTP, et pour pouvoir le mettre à l'échelle indépendamment.
+  worker:
+    build:
+      context: ./backend
+      target: development
+    restart: unless-stopped
+    command: ['npm', 'run', 'start:worker']
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      # Le worker ne signe aucune URL destinée au navigateur, mais
+      # StorageService lit cette variable au démarrage (getOrThrow).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      # `service_started`, PAS `service_healthy` : ClamAV met plusieurs
+      # minutes à télécharger sa base au premier démarrage, et bloquer le
+      # worker tout ce temps rendrait la pile inutilisable. Les jobs lancés
+      # pendant cette fenêtre échouent et sont rejoués par BullMQ (3
+      # tentatives, backoff exponentiel), ce qui couvre exactement ce cas.
+      clamav:
+        condition: service_started
+
   front:
     build:
       context: ./frontend
@@ -149,6 +211,26 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
+  # Répartition de charge sur les réplicas de l'API (SOC-06). nginx ne peut pas
+  # jouer ce rôle : sa résolution DNS par variable (voir infra/nginx/nginx.conf)
+  # ne retient qu'UNE adresse par requête, pas l'ensemble des réplicas. HAProxy
+  # découvre dynamiquement les adresses `api` par DNS (résolveur Docker), ce qui
+  # suit `make scale` sans redémarrage. C'est aussi ce qui rend QA-06 mesurable :
+  # comparer le p95 à 1 puis 3 réplicas n'a de sens que si la charge est
+  # effectivement répartie entre eux.
+  haproxy:
+    image: haproxy:2.9-alpine
+    restart: unless-stopped
+    # 8404 : page de stats, utile pour vérifier à l'œil la répartition entre
+    # réplicas pendant le test de charge de QA-06. Pas nécessaire au
+    # fonctionnement de l'application — seul le port 3000 (interne) l'est.
+    ports:
+      - '8404:8404'
+    volumes:
+      - ./infra/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - api
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -157,10 +239,11 @@ services:
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - api
+      - haproxy
       - front
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  clamav_db:

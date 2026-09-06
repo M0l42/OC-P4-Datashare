@@ -1,0 +1,71 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+  border-radius: var(--ds-radius);
+  border: 1px solid transparent;
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-body-size);
+  font-weight: 400;
+  line-height: var(--ds-text-small-line);
+  padding-inline: var(--ds-space-4);
+  cursor: pointer;
+  background: none;
+}
+
+.medium {
+  height: var(--ds-size-medium);
+}
+
+.small {
+  height: var(--ds-size-small);
+}
+
+.primary {
+  background-color: var(--ds-btn-primary-bg);
+  border-color: var(--ds-btn-primary-border);
+  color: var(--ds-btn-primary-fg);
+}
+
+.secondary {
+  border-color: var(--ds-btn-secondary-border);
+  color: var(--ds-btn-secondary-fg);
+}
+
+.tertiary {
+  color: var(--ds-btn-tertiary-fg);
+}
+
+.dark {
+  background-color: var(--ds-btn-dark-bg);
+  color: var(--ds-btn-dark-fg);
+}
+
+/* Disabled overrides the variant: all four collapse to the same grey in the
+ * mockups. Only the background differs, and only where the variant had one. */
+.button:disabled {
+  cursor: not-allowed;
+  color: var(--ds-btn-disabled-fg);
+  border-color: transparent;
+  background: none;
+}
+
+.primary:disabled,
+.secondary:disabled {
+  background-color: var(--ds-btn-disabled-fill);
+  border-color: var(--ds-btn-disabled-border);
+}
+
+.dark:disabled {
+  background-color: var(--ds-btn-disabled-bg);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--ds-color-text);
+  outline-offset: 2px;
+}
+
+.fullWidth {
+  width: 100%;
+}

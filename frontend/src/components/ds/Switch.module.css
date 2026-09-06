@@ -1,0 +1,36 @@
+.switch {
+  display: inline-flex;
+  align-items: stretch;
+  background-color: var(--ds-switch-bg);
+  border: 1px solid var(--ds-switch-border);
+  border-radius: var(--ds-radius-pill);
+  /* Selected segments paint to the edge; without this their square corners
+   * poke out of the pill. */
+  overflow: hidden;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--ds-size-small);
+  padding-inline: var(--ds-space-4);
+  border: none;
+  background: none;
+  font-family: var(--ds-font-ui);
+  font-size: var(--ds-text-body-size);
+  line-height: var(--ds-text-small-line);
+  color: #000000;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.selected {
+  background-color: var(--ds-switch-selected-bg);
+  color: var(--ds-color-text-on-accent);
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--ds-color-text);
+  outline-offset: -2px;
+}

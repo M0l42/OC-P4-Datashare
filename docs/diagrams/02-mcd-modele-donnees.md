@@ -37,6 +37,7 @@
 | `afficher_expediteur` | BOOLEAN | non nul, défaut `false` |
 | `tags` | TEXT[] | tableau, 0..N, 30 caractères max par tag |
 | `cree_le` | TIMESTAMPTZ | non nul |
+| `mis_a_jour_le` | TIMESTAMPTZ | non nul, mis à jour à chaque transition d'état |
 
 ---
 
@@ -70,13 +71,15 @@ Trois annotations, chacune reliée par un trait fin à l'élément concerné :
 Sous l'entité `FICHIER`, un encadré « Index » :
 
 ```
-(etat, expire_le)   → purge à expiration + purge des lignes fantômes
-(etat, cree_le)     → reaper des uploads abandonnés (fenêtre 48 h)
-jeton_telechargement → unique, accès destinataire
-proprietaire_id      → liste « Mon espace »
+(etat, expire_le)     → purge à expiration (ready → expired) (quotidien, 03:00)
+(etat, cree_le)       → reaper des uploads abandonnés, fenêtre 48 h (quotidien, 03:00, même passage)
+(etat, mis_a_jour_le) → purge des lignes fantômes, fenêtre 7 j (quotidien, 03:00, même passage)
+                         ET remise en file des scans bloqués, fenêtre 15 min (horaire)
+jeton_telechargement  → unique, accès destinataire
+proprietaire_id       → liste « Mon espace »
 ```
 
-Ces trois tâches planifiées balaient la table quotidiennement. Sans index, chacune fait un parcours complet.
+`(etat, mis_a_jour_le)` sert deux tâches à deux fréquences différentes, pas une seule : la purge des lignes fantômes (`expired`/`rejected`) mesure les 7 jours depuis la dernière transition d'état de la ligne, pas depuis `expire_le` : `expire_le` ne veut rien dire pour une ligne `rejected`, qui n'a jamais expiré, elle a été refusée. C'est pour ça que cette purge lit `mis_a_jour_le`, pas `expire_le`. Sans ces index, chaque balayage ferait un parcours complet de table.
 
 ---
 
@@ -124,8 +127,8 @@ types Prisma. Ces six points l'ont été, et chacun se défend :
    impossible. **Ne jamais utiliser d'UUID comme jeton** (voir point 4).
 
 4. **Identifiants en UUID v7** (`@default(uuid(7))`), pour la localité d'index :
-   trois tâches planifiées balaient cette table quotidiennement et des insertions
-   ordonnées valent mieux qu'une dispersion aléatoire. Attention au contresens :
+   quatre tâches planifiées balaient cette table (trois quotidiennes, une horaire)
+   et des insertions ordonnées valent mieux qu'une dispersion aléatoire. Attention au contresens :
    v7 est **moins** imprévisible que v4 — il embarque un horodatage à la
    milliseconde et ne porte qu'environ 74 bits aléatoires contre 122. Acceptable
    pour une clé primaire, jamais pour un secret.
