@@ -1,16 +1,16 @@
-# DataShare — Tests
+# DataShare : Tests
 
 Document vivant, écrit au fil de l'implémentation (voir `docs/design-decisions.md`,
-prémisse 3). Trois niveaux, chacun avec son propre but — voir `docs/test-plan.md`
+prémisse 3). Trois niveaux, chacun avec son propre but, voir `docs/test-plan.md`
 pour le détail page par page et interaction par interaction.
 
 ## Unitaire (Jest)
 
-122 tests, 21 suites, tous passants. Cible `src/**/*.spec.ts`, `make test`.
+125 tests, 22 suites, tous passants. Cible `src/**/*.spec.ts`, `make test`.
 
 ## Intégration (Supertest)
 
-36 tests, 7 suites, contre une base PostgreSQL jetable : `app`, `files`,
+37 tests, 7 suites, contre une base PostgreSQL jetable : `app`, `files`,
 `download`, `scan`, `purge`, `file-deletion`, `file-history`. Cible
 `test/*.e2e-spec.ts`, `make test-e2e`.
 
@@ -37,17 +37,17 @@ dans `backend/package.json` (`jest --coverage` échoue en dessous de 70 %).
 — fichiers de câblage NestJS et bootstrap, choix méthodologique disclosé, pas
 une façon de gonfler le chiffre.
 
-**Résultat courant : 96,47 % de lignes.** Re-généré le 2026-09-06 (remplace le
-96,42 % précédent) après l'ajout du chemin `HeadObject`/`DeleteObject` sur
-l'objet orphelin dans `file-deletion.service.ts` et de son test : le chiffre
-a réellement bougé, pas resté identique par coïncidence.
+**Résultat courant : 96,53 % de lignes.** Re-généré le 2026-09-06 (remplace le
+96,47 % précédent) après l'ajout de `DownloadThrottlerGuard` et de ses trois
+tests : un fichier neuf entièrement couvert fait mécaniquement remonter la
+moyenne globale, ce n'est pas resté identique par coïncidence.
 
 ```
 $ make test-cov
 ------------------------------|---------|----------|---------|---------|-------------------
 File                          | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
 ------------------------------|---------|----------|---------|---------|-------------------
-All files                     |   96.45 |    78.76 |   90.51 |   96.47 |
+All files                     |   96.52 |    78.63 |   90.67 |   96.53 |
  src                          |     100 |       75 |     100 |     100 |
   app.controller.ts           |     100 |       75 |     100 |     100 | 6
   app.service.ts              |     100 |      100 |     100 |     100 |
@@ -61,9 +61,10 @@ All files                     |   96.45 |    78.76 |   90.51 |   96.47 |
   jwt-auth.guard.ts           |     100 |      100 |     100 |     100 |
  src/auth/strategies          |     100 |       75 |     100 |     100 |
   jwt.strategy.ts             |     100 |       75 |     100 |     100 | 8
- src/download                 |   98.11 |    88.09 |     100 |   97.95 |
-  download.controller.ts      |     100 |       80 |     100 |     100 | 26,72
-  download.service.ts         |   97.36 |    90.62 |     100 |   97.22 | 77
+ src/download                 |   98.48 |    85.18 |     100 |   98.33 |
+  download-throttler.guard.ts |     100 |    78.57 |     100 |     100 | 24,36
+  download.controller.ts      |     100 |       80 |     100 |     100 | 30,78
+  download.service.ts         |   97.05 |       90 |     100 |   96.87 | 74
  src/download/dto             |     100 |      100 |     100 |     100 |
   verify-password.dto.ts      |     100 |      100 |     100 |     100 |
  src/files                    |   95.34 |    74.82 |   94.28 |      95 |
@@ -98,17 +99,15 @@ All files                     |   96.45 |    78.76 |   90.51 |   96.47 |
   storage.service.ts          |     100 |     87.5 |     100 |     100 | 42
 ------------------------------|---------|----------|---------|---------|-------------------
 
-Test Suites: 21 passed, 21 total
-Tests:       122 passed, 122 total
+Test Suites: 22 passed, 22 total
+Tests:       125 passed, 125 total
 ```
 
-122, pas 121 + 2 : un des deux tests ajoutés au correctif du reaper est le
-renommage d'un test existant (« swallows a NoSuchUpload race... » précisait
-mal ce qu'il couvrait une fois l'objet orphelin géré), l'autre est net
-nouveau. 121 + 1 = 122.
+125, pas 122 + 2 : le correctif du flux GET/POST a ajouté trois tests sur
+`download-throttler.guard.ts`, pas deux. 122 + 3 = 125.
 
 Lowest branch coverage is `scan-queue.service.ts` (54.5 % lines) and `prisma.service.ts`
-(75 % lines, 0 % functions) — both thin wrappers (BullMQ enqueue calls, a Prisma client
+(75 % lines, 0 % functions), both thin wrappers (BullMQ enqueue calls, a Prisma client
 subclass) where the untested branches are framework glue, not application
 logic. `HTML` report (not committed — see `.gitignore`) at
 `backend/coverage/lcov-report/index.html` after `make test-cov`.

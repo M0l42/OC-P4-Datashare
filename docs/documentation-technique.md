@@ -403,7 +403,7 @@ Trois niveaux : unitaire (Jest), intégration (Supertest sur une base PostgreSQL
 
 Le plan de test détaillé, par page et par interaction, est dans `docs/test-plan.md`.
 
-Rapport de couverture, décompte par niveau et résultats d'exécution : voir `TESTING.md` à la racine. Résultat courant : 96,47 % de lignes (objectif 70 %), 122 tests unitaires, 36 tests d'intégration, 3 scénarios Cypress.
+Rapport de couverture, décompte par niveau et résultats d'exécution : voir `TESTING.md` à la racine. Résultat courant : 96,53 % de lignes (objectif 70 %), 125 tests unitaires, 37 tests d'intégration, 3 scénarios Cypress.
 
 ### SECURITY.md
 
