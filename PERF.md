@@ -25,22 +25,68 @@ réseau vers MinIO — voir `StorageService.signDownloadUrl`).
 
 **Méthode** : `perf/seed-download-token.sh` insère une ligne `File` à l'état
 `ready` directement en base (le jeton ciblé n'a pas besoin d'un objet MinIO réel,
-puisque l'endpoint ne le vérifie pas). `perf/download-load-test.js` (k6, 20 VUs,
-30 s) frappe ce jeton en boucle. Comparaison à 1 puis 3 réplicas API, via HAProxy
-(`make scale n=1|3`, SOC-06).
+puisque l'endpoint ne le vérifie pas). `perf/download-load-test.js` frappe ce
+jeton en boucle avec l'exécuteur par défaut de k6 : `VUS=60` (variable
+d'environnement du script), 30 secondes, VUs constants en boucle fermée, sans
+pause entre deux requêtes d'un même VU, pas de montée en charge progressive.
+Comparaison à 1 puis 3 réplicas API, via HAProxy (`make scale n=1|3`, SOC-06).
+`PERF_TEST_SECRET` (voir `.env.example`) fait passer ce test outre le rate
+limiting de `/d/:token` (SOC-07) : sans lui, 60 VUs en boucle fermée épuisent
+les deux compteurs de `throttler.module.ts` en quelques centaines de
+millisecondes, et le test mesurerait la vitesse de rejet du throttler, pas le
+chemin réel.
 
-| Réplicas | Débit | p95 | Erreurs |
-|---|---|---|---|
-| 1 | 853,9 req/s | 29,75 ms | 0 % |
-| 3 | 1312,6 req/s | 29,83 ms | 0 % |
+Premier essai à 20 VUs (2026-08-30) : dans un système en boucle fermée à
+concurrence fixe, le débit ne peut augmenter avec le nombre de réplicas que si
+la latence baisse en proportion (loi de Little : concurrence ≈ débit × latence
+moyenne). Le relevé de l'époque annonçait +53,7 % de débit avec un p95
+inchangé, ce qui est mathématiquement incohérent : une hausse de débit à
+concurrence fixe *est* la preuve qu'un goulot a été desserré, pas celle d'une
+absence de saturation. Repris à VUs plus élevés (60) pour lever l'ambiguïté et
+rapporter la médiane et la moyenne, pas seulement le p95 :
 
-**Lecture** : le débit progresse de +53,7 % avec 3 réplicas, sans dégradation du
-p95 (quasi identique : 29,75 → 29,83 ms). La latence ne bouge pas parce qu'à
-20 VUs, un seul réplica n'était déjà pas saturé — le gain se voit sur le débit
-soutenable, pas sur le temps de réponse individuel. Un test à VUs plus élevé
-ferait apparaître un p95 qui se dégrade à 1 réplica et pas à 3 ; ce n'est pas
-fait ici faute de temps alloué à cette tâche (1,5 h estimées pour SOC-06,
-3 h pour QA-06).
+| Réplicas | Débit | Moyenne | Médiane | p90 | p95 | p99 | Max | Erreurs |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 764,13 req/s | 78,34 ms | 74,93 ms | 84,38 ms | 90,05 ms | 100,47 ms | 1,93 s | 0 % |
+| 3 | 1117,18 req/s | 53,49 ms | 23,07 ms | 128,79 ms | 140,28 ms | 188,61 ms | 1,54 s | 0 % |
+
+Re-mesuré le 2026-09-06 (remplace le relevé du 2026-09-05, même méthode et
+même script, écart attendu d'un run à l'autre sur une machine partagée avec
+le client k6 lui-même) pour ajouter p99 et le max, absents du premier relevé.
+
+**Lecture** : débit et latence moyenne évoluent en sens inverse, comme l'impose
+un système en boucle fermée à concurrence fixe (loi de Little, N = X × R : la
+concurrence est le produit du débit et du temps de réponse moyen). Vérification
+directe : 764,13 × 0,07834 ≈ 59,9 requêtes en vol en moyenne à 1 réplica,
+1117,18 × 0,05349 ≈ 59,8 à 3 réplicas, un nombre quasiment identique malgré des
+débits très différents, ce qui confirme que le harnais tournait à une
+concurrence constante (~60 VUs) d'un run à l'autre, pas à une dérive de
+méthode. La loi ne contraint que la moyenne, pas les autres quantiles : c'est
+pourquoi le p95 et le p99 progressent (90 → 140 ms, 100 → 189 ms) sans
+contredire une moyenne et une médiane en forte baisse (78 → 53 ms, 75 → 23
+ms). La queue de distribution est tirée vers le haut par une minorité de
+requêtes plus lentes, indépendamment de ce que fait la moyenne, cohérent
+avec `docker stats` ci-dessous (contention CPU entre les trois réplicas). Le
+max, lui, baisse (1,93 s → 1,54 s) : c'est un point unique par run, pas une
+statistique de queue, il ne se lit pas comme le p99.
+
+Le gain observé (+46,2 %, soit ×1,46) reste net en dessous d'un ×3 linéaire.
+`docker stats` pendant l'exécution à 3 réplicas explique pourquoi : les trois
+processus API tournent à 146 %, 146 % et 163 % de CPU simultanément, sur la
+même machine que le client k6 lui-même, les quatre processus se partageant le
+même jeu de cœurs. C'est de la contention de ressources sur l'environnement de
+mesure, pas un plafond de l'architecture testée ; un environnement avec un
+cœur dédié par réplica montrerait vraisemblablement un gain plus proche du
+linéaire.
+
+**Piège rencontré en reproduisant cette mesure** : juste après `make scale n=3`,
+HAProxy peut encore n'avoir qu'un seul réplica marqué `UP` dans ses propres
+vérifications de santé (`resolvers docker`, `hold valid 10s` dans
+`infra/haproxy/haproxy.cfg`) alors que Docker les rapporte déjà `healthy`. Un
+test lancé trop tôt frappe alors un seul réplica sur les trois et ne montre
+aucun gain, pas parce que le système ne passe pas à l'échelle, mais parce que
+la mesure a démarré avant que la répartition ne soit effective. Vérifier
+`curl http://localhost:8404/;csv` (page de stats HAProxy) avant de lancer k6.
 
 ### Un vrai problème trouvé et corrigé en cours de route
 
@@ -139,10 +185,10 @@ de décalage de mise en page. FCP/LCP à 2,5 s reflètent le throttling réseau
 simulé par défaut de Lighthouse (4G lente), pas un problème de l'application.
 
 Les deux causes du score Bonnes pratiques (78) sont attendues en local et hors
-périmètre de QA-07 : absence de HTTPS et de redirection HTTP→HTTPS — ce projet
-n'a jamais prétendu terminer TLS en développement (`docker-compose.yml` sert
-tout en HTTP local), et la terminaison TLS reste un chantier non livré,
-cohérent avec `SECURITY.md`.
+périmètre de QA-07 : absence de HTTPS et de redirection HTTP→HTTPS. Raison
+détaillée dans `SECURITY.md` : ce projet n'a jamais prétendu terminer TLS en
+développement (`docker-compose.yml` sert tout en HTTP local), la terminaison
+TLS reste un chantier de production, pas un oubli.
 
 Le premier passage Lighthouse (score Accessibilité 92) a révélé un vrai défaut
 de contraste : deux variantes de bouton du design system, plus un troisième

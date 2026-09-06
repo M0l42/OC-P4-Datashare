@@ -312,7 +312,7 @@ The reaper's job is aborting `pending` multipart uploads; resume's requirement i
 
 Two corrections, both in `scripts/init-bucket.sh`:
 
-- `stale_uploads_expiry` is set to **72 h**, not 48 h. A backstop must fire *after* the primary mechanism, never before; the application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
+- `stale_uploads_expiry` is set to **96 h**, not 48 h or even 72 h. A backstop must fire *after* the primary mechanism with a real margin, not by a hair: the daily 48 h reaper's worst case is a row that crosses 48 h right after the 03:00 sweep, caught only the next day, up to 72 h before real deletion. At 72 h, MinIO's own best case (6 h sweep cycle) lands exactly on that worst case: zero margin. 96 h leaves 24 h of real margin. The application reaper keeps authority over the resume window and MinIO only collects parts no row references anymore.
 - The "lifecycle rule as backstop" mentioned above **never existed**. The rule the script created was `--expire-delete-marker`, which concerns delete markers on a versioned bucket and was a no-op here — and since `mc ilm rule add` appends rather than replaces, every `make init-bucket` silently added another copy. It is removed; `stale_uploads_expiry` is the only real lever, and the script is now idempotent (verified: 0 rules after two consecutive runs).
 
 Consequence for the test plan: the "resume after 48 h" E2E case has to assert the refusal path *deliberately*, because before this fix it would have passed for the wrong reason.

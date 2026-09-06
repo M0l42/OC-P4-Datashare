@@ -6,13 +6,13 @@ pour le détail page par page et interaction par interaction.
 
 ## Unitaire (Jest)
 
-121 tests, 21 suites, tous passants. Cible `src/**/*.spec.ts`, `make test`.
+122 tests, 21 suites, tous passants. Cible `src/**/*.spec.ts`, `make test`.
 
 ## Intégration (Supertest)
 
-34 tests, 6 suites, contre une base PostgreSQL jetable — `app`, `files`,
-`download`, `scan`, `purge`, `file-deletion`. Cible `test/*.e2e-spec.ts`,
-`make test-e2e`.
+36 tests, 7 suites, contre une base PostgreSQL jetable : `app`, `files`,
+`download`, `scan`, `purge`, `file-deletion`, `file-history`. Cible
+`test/*.e2e-spec.ts`, `make test-e2e`.
 
 ## Bout en bout (Cypress)
 
@@ -37,19 +37,22 @@ dans `backend/package.json` (`jest --coverage` échoue en dessous de 70 %).
 — fichiers de câblage NestJS et bootstrap, choix méthodologique disclosé, pas
 une façon de gonfler le chiffre.
 
-**Résultat courant : 96,42 % de lignes.**
+**Résultat courant : 96,47 % de lignes.** Re-généré le 2026-09-06 (remplace le
+96,42 % précédent) après l'ajout du chemin `HeadObject`/`DeleteObject` sur
+l'objet orphelin dans `file-deletion.service.ts` et de son test : le chiffre
+a réellement bougé, pas resté identique par coïncidence.
 
 ```
 $ make test-cov
 ------------------------------|---------|----------|---------|---------|-------------------
 File                          | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s
 ------------------------------|---------|----------|---------|---------|-------------------
-All files                     |   96.41 |    78.76 |   90.43 |   96.42 |
+All files                     |   96.45 |    78.76 |   90.51 |   96.47 |
  src                          |     100 |       75 |     100 |     100 |
   app.controller.ts           |     100 |       75 |     100 |     100 | 6
   app.service.ts              |     100 |      100 |     100 |     100 |
  src/auth                     |     100 |    80.76 |     100 |     100 |
-  auth.controller.ts          |     100 |       75 |     100 |     100 | 25-40
+  auth.controller.ts          |     100 |       75 |     100 |     100 | 26-49
   auth.service.ts             |     100 |    85.71 |     100 |     100 | 21
  src/auth/dto                 |     100 |      100 |     100 |     100 |
   login.dto.ts                |     100 |      100 |     100 |     100 |
@@ -58,17 +61,17 @@ All files                     |   96.41 |    78.76 |   90.43 |   96.42 |
   jwt-auth.guard.ts           |     100 |      100 |     100 |     100 |
  src/auth/strategies          |     100 |       75 |     100 |     100 |
   jwt.strategy.ts             |     100 |       75 |     100 |     100 | 8
- src/download                 |   98.07 |    88.09 |     100 |   97.91 |
-  download.controller.ts      |     100 |       80 |     100 |     100 | 20,61
+ src/download                 |   98.11 |    88.09 |     100 |   97.95 |
+  download.controller.ts      |     100 |       80 |     100 |     100 | 26,72
   download.service.ts         |   97.36 |    90.62 |     100 |   97.22 | 77
  src/download/dto             |     100 |      100 |     100 |     100 |
   verify-password.dto.ts      |     100 |      100 |     100 |     100 |
- src/files                    |    95.2 |    74.82 |   94.11 |   94.83 |
+ src/files                    |   95.34 |    74.82 |   94.28 |      95 |
   file-deletion.controller.ts |     100 |     62.5 |     100 |     100 | 27-44
-  file-deletion.service.ts    |   93.93 |    84.37 |     100 |   93.54 | 64,88
+  file-deletion.service.ts    |   94.73 |    84.37 |     100 |   94.44 | 64,102
   file-history.controller.ts  |     100 |    66.66 |     100 |     100 | 20-31
   files.controller.ts         |     100 |    59.37 |     100 |     100 | 32-120
-  files.service.ts            |   92.77 |    83.01 |    87.5 |    92.4 | 125,157,214-226
+  files.service.ts            |   92.77 |    83.01 |    87.5 |    92.4 | 124,156,213-225
   upload.constants.ts         |     100 |       50 |     100 |     100 | 33
  src/files/dto                |   95.65 |      100 |       0 |   95.65 |
   complete-upload.dto.ts      |    87.5 |      100 |       0 |    87.5 | 24
@@ -84,7 +87,7 @@ All files                     |   96.41 |    78.76 |   90.43 |   96.42 |
   purge.service.ts            |     100 |    71.42 |     100 |     100 | 27-51
   purge.worker.ts             |      95 |       75 |      80 |   94.44 | 41
  src/scan                     |   93.75 |    81.94 |   78.57 |   94.55 |
-  clamav.client.ts            |   96.15 |    77.77 |   88.88 |     100 | 23-25,56
+  clamav.client.ts            |   96.15 |    77.77 |   88.88 |     100 | 25-27,58
   magic-bytes.ts              |    92.3 |    83.33 |     100 |   91.66 | 36
   redis.config.ts             |     100 |      100 |     100 |     100 |
   scan-queue.service.ts       |   61.53 |       75 |       0 |   54.54 | 14-41
@@ -96,11 +99,16 @@ All files                     |   96.41 |    78.76 |   90.43 |   96.42 |
 ------------------------------|---------|----------|---------|---------|-------------------
 
 Test Suites: 21 passed, 21 total
-Tests:       121 passed, 121 total
+Tests:       122 passed, 122 total
 ```
 
-Lowest branch coverage is `scan-queue.service.ts` (54.5 %) and `prisma.service.ts`
-(75 % functions) — both thin wrappers (BullMQ enqueue calls, a Prisma client
+122, pas 121 + 2 : un des deux tests ajoutés au correctif du reaper est le
+renommage d'un test existant (« swallows a NoSuchUpload race... » précisait
+mal ce qu'il couvrait une fois l'objet orphelin géré), l'autre est net
+nouveau. 121 + 1 = 122.
+
+Lowest branch coverage is `scan-queue.service.ts` (54.5 % lines) and `prisma.service.ts`
+(75 % lines, 0 % functions) — both thin wrappers (BullMQ enqueue calls, a Prisma client
 subclass) where the untested branches are framework glue, not application
 logic. `HTML` report (not committed — see `.gitignore`) at
 `backend/coverage/lcov-report/index.html` after `make test-cov`.

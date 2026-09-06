@@ -100,7 +100,7 @@ docker compose start
 
 Restauration : arrêter la pile, vider le volume cible, `tar xzf` l'archive
 dedans, redémarrer. Redis n'a volontairement pas de procédure de sauvegarde :
-son contenu (files de jobs, compteurs de limitation de débit à venir) est
+son contenu (files de jobs, compteurs de limitation de débit) est
 entièrement reconstruit par l'application au redémarrage, rien n'y est source
 de vérité.
 

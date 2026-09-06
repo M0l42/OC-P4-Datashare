@@ -26,12 +26,14 @@
 //     pending, uploaded, scanning, ready, rejected, expired, abandoned.
 //     La rajouter plus tard est douloureux.
 //   - index à créer dans la même migration :
-//       @@index([state, expiresAt])   purge à expiration + purge des fantômes
+//       @@index([state, expiresAt])   purge à expiration (ready -> expired)
 //       @@index([state, createdAt])   reaper des uploads abandonnés (48 h)
 //       @@unique([downloadToken])     accès destinataire
 //       @@index([ownerId])            liste « Mon espace »
-//     Trois tâches planifiées balaient ces couples quotidiennement ; sans
-//     index, chacune fait un parcours complet de table.
+//     Une quatrième, @@index([state, updatedAt]), a été ajoutée par SOC-05
+//     (voir le commentaire sur `updatedAt` du modèle File ci-dessous) : elle
+//     sert à la fois la purge des lignes fantômes (quotidienne) et la remise
+//     en file des scans bloqués (horaire), pas seulement la seconde.
 
 generator client {
   provider      = "prisma-client-js"
@@ -114,9 +116,9 @@ model File {
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   ownerId String @db.Uuid @map("owner_id")
 
-  @@index([state, expiresAt], map: "files_state_expires_at_idx") // purge à expiration + purge des fantômes
+  @@index([state, expiresAt], map: "files_state_expires_at_idx") // purge à expiration (ready -> expired)
   @@index([state, createdAt], map: "files_state_created_at_idx") // reaper des uploads abandonnés (48 h)
-  @@index([state, updatedAt], map: "files_state_updated_at_idx") // remise en file des scans bloqués (15 min)
+  @@index([state, updatedAt], map: "files_state_updated_at_idx") // purge des lignes fantômes (quotidien) ET remise en file des scans bloqués (horaire)
   @@index([ownerId], map: "files_owner_id_idx") // liste « Mon espace »
   @@map("files")
 }
