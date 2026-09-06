@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { FilesModule } from './files/files.module';
 import { DownloadModule } from './download/download.module';
+import { RedisThrottlerModule } from './throttler/throttler.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { DownloadModule } from './download/download.module';
       },
     }),
     PrismaModule,
+    RedisThrottlerModule,
     AuthModule,
     FilesModule,
     DownloadModule,

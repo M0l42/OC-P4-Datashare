@@ -127,6 +127,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       PUBLIC_APP_ORIGIN: ${PUBLIC_APP_ORIGIN}
+      # Échappatoire de rate limiting pour `make perf-download` (voir
+      # throttler.module.ts). Vide par défaut : sans valeur dans .env, aucun
+      # en-tête ne peut jamais correspondre, le throttling s'applique toujours.
+      PERF_TEST_SECRET: ${PERF_TEST_SECRET:-}
     volumes:
       - ./backend:/app
       # Volume anonyme : empêche le node_modules de l'hôte (Node 18, binaires

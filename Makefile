@@ -106,14 +106,18 @@ cypress: ## Tests E2E navigateur (QA-03) — nécessite `make up`.
 		-e CYPRESS_BASE_URL=http://localhost:8080 \
 		cypress/included:15.21.1
 
-perf-download: ## QA-06 — k6 sur GET /d/:token (make perf-download n=1|3) — nécessite `make up`
+perf-download: ## QA-06 — k6 sur GET /d/:token (make perf-download n=1|3 [vus=60]) — nécessite `make up`
 	@test -n "$(n)" || (echo "usage: make perf-download n=1|3"; exit 1)
 	$(MAKE) scale n=$(n)
 	@sleep 8
 	$(eval TOKEN := $(shell ./perf/seed-download-token.sh))
+	$(eval PERF_TEST_SECRET := $(shell grep '^PERF_TEST_SECRET=' .env 2>/dev/null | cut -d= -f2-))
+	$(eval VUS := $(or $(vus),60))
 	docker run --rm --network host \
 		-e BASE_URL=http://localhost:8080 \
 		-e TOKEN=$(TOKEN) \
+		-e VUS=$(VUS) \
+		-e PERF_TEST_SECRET=$(PERF_TEST_SECRET) \
 		-v "$(CURDIR)/perf:/perf" \
 		grafana/k6 run /perf/download-load-test.js
 

@@ -2,11 +2,24 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  // CSP désactivée : cette API ne sert aucun HTML (le front est servi par
+  // nginx, séparément), la politique par défaut d'helmet casserait Swagger
+  // UI (script inline) pour un service qui ne rend rien lui-même.
+  app.use(helmet({ contentSecurityPolicy: false }));
+
+  // nginx → HAProxy → API : un seul saut de proxy connu, qui écrit
+  // X-Forwarded-For avec l'IP réelle du client (nginx.conf). Sans ce
+  // réglage, req.ip vaudrait toujours l'adresse interne Docker de HAProxy
+  // pour toutes les requêtes, et la limitation de débit par IP protégerait
+  // tout le monde... ou personne, au même compteur.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   // Validation globale. `whitelist` retire les propriétés non déclarées dans le
   // DTO, `forbidNonWhitelisted` renvoie une 400 si le client en envoie : le
